@@ -1,0 +1,10 @@
+node_modules
+.next
+.venv
+fixtures/generated
+__pycache__
+.pytest_cache
+.git
+*.pyc
+.env
+.env.local

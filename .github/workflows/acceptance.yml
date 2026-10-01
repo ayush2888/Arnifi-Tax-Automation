@@ -1,0 +1,64 @@
+name: acceptance
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: daftar
+          POSTGRES_PASSWORD: daftar-local-only
+          POSTGRES_DB: daftar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U daftar -d daftar"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGPASSWORD: daftar-local-only
+      DATABASE_URL: postgresql://daftar_app:daftar-local-only@127.0.0.1:5432/daftar_test
+      DATABASE_URL_SUPER: postgresql://daftar:daftar-local-only@127.0.0.1:5432/daftar_test
+      WORKER_DATABASE_URL: postgresql://daftar_worker:daftar-local-only@127.0.0.1:5432/daftar_test
+      S3_ENDPOINT: http://127.0.0.1:59000
+      S3_ACCESS_KEY: daftar
+      S3_SECRET_KEY: daftar-local-only
+      S3_BUCKET: statements
+      IBAN_ENCRYPTION_KEY: dev-only-iban-key-change-me
+      OCR_PROVIDER: local
+      PDF_PROBE_MIN_CHARS: "30"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install Tesseract
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ara
+      - name: Install worker
+        run: pip install -e "./worker[dev]" "moto[server]"
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Object storage stand-in
+        run: |
+          moto_server -p 59000 -H 127.0.0.1 >/tmp/moto.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:59000/ >/dev/null && break; sleep 1; done
+      - name: Test database
+        run: psql -h 127.0.0.1 -U daftar -d postgres -c "CREATE DATABASE daftar_test OWNER daftar;"
+      - name: Python acceptance tests
+        working-directory: worker
+        run: pytest -q
+      - name: Web acceptance tests
+        run: npm ci && npm test

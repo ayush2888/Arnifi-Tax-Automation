@@ -1,0 +1,34 @@
+[project]
+name = "daftar-worker"
+version = "0.1.0"
+description = "Statement ingestion worker for Daftar"
+requires-python = ">=3.12"
+dependencies = [
+  "psycopg[binary]>=3.2",
+  "pymupdf>=1.24",
+  "pytesseract>=0.3",
+  "pillow>=10",
+  "pandas>=2.2",
+  "openpyxl>=3.1",
+  "xlrd>=2.0",
+  "xlwt>=1.3",
+  "charset-normalizer>=3.3",
+  "minio>=7.2",
+  "python-dotenv>=1.0",
+  "cryptography>=44",
+  "numpy>=2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "src"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

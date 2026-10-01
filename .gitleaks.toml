@@ -1,0 +1,18 @@
+# Daftar local secret scan.
+# The strings below are documented development placeholders, not live credentials.
+
+title = "daftar"
+
+[allowlist]
+description = "Local development placeholders committed on purpose"
+regexTarget = "line"
+regexes = [
+  '''daftar-local-only''',
+  '''dev-only-iban-key-change-me''',
+  '''dev-worker-token''',
+]
+paths = [
+  '''fixtures/generated''',
+  '''\.venv''',
+  '''node_modules''',
+]
