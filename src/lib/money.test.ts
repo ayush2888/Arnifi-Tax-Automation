@@ -15,5 +15,7 @@ test("rejects floats and formats minor units", () => {
   assert.equal(displayToMinor("10"), 1000);
   assert.throws(() => displayToMinor("10.555"), MoneyTypeError);
   assert.throws(() => displayToMinor("1.234"), MoneyTypeError);
+  assert.throws(() => displayToMinor("1.230"), MoneyTypeError);
+  assert.equal(displayToMinor("1.23"), 123);
   assert.equal(formatMinor(1234), "12.34");
 });

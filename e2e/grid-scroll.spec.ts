@@ -16,7 +16,20 @@ test("scrolls 50,000 rows and screenshots the source highlight", async ({ page }
   await scroller.evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
-  await expect(page.getByRole("button", { name: "V00001", exact: true })).toBeVisible({ timeout: 20_000 });
+  const reached = page.locator("[data-reference='V00001']");
+  await expect(reached).toBeVisible({ timeout: 20_000 });
+  await expect(reached).toHaveAttribute("data-row-no", "1");
+  await expect(reached.getByRole("button", { name: "V00001", exact: true })).toBeVisible();
+  const identity = await reached.evaluate((element) => ({
+    virtualIndex: element.closest("[data-row]")?.getAttribute("data-row") ?? "",
+    txnId: element.getAttribute("data-txn-id") ?? "",
+    rowNo: element.getAttribute("data-row-no") ?? "",
+    reference: element.getAttribute("data-reference") ?? "",
+  }));
+  expect(identity.virtualIndex).toBe("49999");
+  expect(identity.rowNo).toBe("1");
+  expect(identity.reference).toBe("V00001");
+  expect(identity.txnId).toMatch(/^[0-9a-f-]{36}$/i);
   const elapsedMs = Date.now() - started;
   const mounted = await page.locator("[data-row]").count();
   const totalSize = Number(await scroller.getAttribute("data-total-size"));

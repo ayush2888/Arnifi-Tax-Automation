@@ -36,7 +36,7 @@ export function UploadDropzone({ onUploaded }: { onUploaded?: (statementId: stri
       body.set("bankAccountId", chosen);
       const response = await fetch("/api/uploads", { method: "POST", body });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "upload_failed");
+      if (!response.ok) throw new Error(payload.message || payload.error || "upload_failed");
       if (payload.duplicate) toast.message("This file was already uploaded. No new processing was started.");
       else toast.success("Statement queued. Parsing runs in the background.");
       onUploaded?.(payload.statementId);

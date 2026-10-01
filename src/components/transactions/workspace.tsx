@@ -366,7 +366,13 @@ export function Workspace() {
             }
             const row = rowAt(slot.rowIndex);
             return (
-              <div className={`flex border-b border-border text-sm ${active === slot.rowIndex ? "bg-muted" : ""}`} style={{ height: item.size, width: tableWidth }}>
+              <div
+                data-reference={row?.reference || ""}
+                data-row-no={row ? String(row.rowNo) : ""}
+                data-txn-id={row?.id || ""}
+                className={`flex border-b border-border text-sm ${active === slot.rowIndex ? "bg-muted" : ""}`}
+                style={{ height: item.size, width: tableWidth }}
+              >
                 {row ? visible.map((column) => (
                   <div
                     key={column.id}

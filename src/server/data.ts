@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { PoolClient } from "pg";
 
+import { unsupportedCurrency } from "@/lib/currency";
 import { withUser } from "@/lib/db";
 import { csvCell } from "@/lib/csv";
 import { assertMinor, formatMinor } from "@/lib/money";
@@ -156,6 +157,8 @@ export async function registerUpload(
       [bankAccountId, clientId],
     );
     if (!account.rowCount) return { error: "unknown_account" as const };
+    const refused = unsupportedCurrency(content);
+    if (refused) return refused;
     const fileId = randomUUID();
     const statementId = randomUUID();
     const jobId = randomUUID();

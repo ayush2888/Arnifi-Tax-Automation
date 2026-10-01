@@ -36,12 +36,45 @@ def test_three_decimal_currencies_are_rejected_not_rounded():
     from daftar.money import THREE_DECIMAL_CURRENCIES, MoneyError
 
     assert THREE_DECIMAL_CURRENCIES == frozenset({"KWD", "BHD", "OMR"})
-    for sample in ("1.234", "0.001", "10.505"):
+    for sample in ("1.234", "0.001", "10.505", "1.230"):
         with pytest.raises(MoneyError) as exc:
             parse_amount(sample)
         assert exc.value.code == "amount_precision"
     assert parse_amount("1.23") == 123
     assert parse_amount("1.2") == 120
+
+
+def test_upload_rejects_unsupported_currency_before_storing_the_file(ctx):
+    from daftar.errors import CodedError
+
+    conn, storage = ctx
+    for code in ("KWD", "BHD", "OMR"):
+        content = (
+            f"Bank,Northwind Commercial Bank\nCurrency,{code}\n"
+            "Date,Description,Debit,Credit,Balance,Reference\n"
+            "2024-01-02,Test,1.230,,1.230,K-1\n"
+        ).encode()
+        name = f"{code.lower()}-statement.csv"
+        with pytest.raises(CodedError) as exc:
+            register_upload(
+                conn,
+                storage,
+                client_id=AL_NOOR,
+                bank_account_id=NORTHWIND,
+                uploaded_by=OMAR,
+                filename=name,
+                content=content,
+            )
+        assert exc.value.code == "unsupported_currency"
+        assert exc.value.message == (
+            f"{code} is quoted to 3 decimal places. "
+            "Phase 1 accepts only currencies quoted to 2 decimal places, such as AED."
+        )
+        stored = conn.execute(
+            "SELECT count(*) AS n FROM files WHERE original_name = %s",
+            (name,),
+        ).fetchone()["n"]
+        assert stored == 0
 
 
 def test_login_roles_are_not_superuser_and_cannot_bypass_rls():
