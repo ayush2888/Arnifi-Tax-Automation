@@ -1,4 +1,9 @@
-"""Money is integer minor units (fils) plus a currency code.
+"""Money is integer minor units at a scale of 2, plus a currency code.
+
+That scale is one fils when the currency is quoted to two decimal places,
+which is the case for AED. KWD, BHD, and OMR are quoted to three decimal
+places. A third decimal raises ``amount_precision`` instead of being rounded
+or truncated, so those currencies are not stored in Phase 1.
 
 Floats are rejected at this boundary. Binary floating point cannot represent
 most decimal cents, so a float is never accepted as an amount.
@@ -8,6 +13,9 @@ from __future__ import annotations
 
 import re
 from typing import Any
+
+
+THREE_DECIMAL_CURRENCIES = frozenset({"KWD", "BHD", "OMR"})
 
 
 class MoneyError(ValueError):

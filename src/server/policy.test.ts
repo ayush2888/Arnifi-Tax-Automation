@@ -74,6 +74,17 @@ test("a correction is logged without a rule until Save as rule is called", async
     assert.equal(csv.includes(',=HYPERLINK'), false);
     const lines = csv.trim().split("\n");
     assert.equal(lines.length, 2);
+    const { csvCell } = await import("../lib/csv");
+    for (const raw of ["\t=10+20", "\r=10+20", " =10+20"]) {
+      await admin.query(
+        `UPDATE bank_transactions SET description_clean = $2, description_raw = $2 WHERE id = $1`,
+        [txnId, raw],
+      );
+      const exported = await exportTransactions(OMAR, AL_NOOR, { q: "=10+20", tab: "all" });
+      assert.ok(exported.includes(csvCell(raw)));
+      assert.equal(exported.includes(",=10+20"), false);
+      assert.equal(exported.includes("\n=10+20"), false);
+    }
   } finally {
     await admin.query(`DELETE FROM statements WHERE id = $1`, [statementId]);
     await admin.end();

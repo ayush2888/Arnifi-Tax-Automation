@@ -1,4 +1,10 @@
-/** Integer minor units. A fractional JSON number is rejected, not rounded. */
+/**
+ * Integer minor units at a scale of 2 (hundredths). That matches AED fils.
+ * KWD, BHD, and OMR are quoted to three decimal places (1/1000). A third
+ * decimal is rejected here so it is never stored as a rounded hundredth.
+ */
+
+export const THREE_DECIMAL_CURRENCIES = ["KWD", "BHD", "OMR"] as const;
 
 export class MoneyTypeError extends Error {
   constructor(field: string) {

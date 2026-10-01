@@ -31,6 +31,39 @@ def test_money_rejects_floats_and_keeps_minor_units():
         decimal_string_from_excel(0.333333333333)
 
 
+def test_three_decimal_currencies_are_rejected_not_rounded():
+    """KWD, BHD, and OMR need thousandths. Phase 1 stores hundredths only."""
+    from daftar.money import THREE_DECIMAL_CURRENCIES, MoneyError
+
+    assert THREE_DECIMAL_CURRENCIES == frozenset({"KWD", "BHD", "OMR"})
+    for sample in ("1.234", "0.001", "10.505"):
+        with pytest.raises(MoneyError) as exc:
+            parse_amount(sample)
+        assert exc.value.code == "amount_precision"
+    assert parse_amount("1.23") == 123
+    assert parse_amount("1.2") == 120
+
+
+def test_login_roles_are_not_superuser_and_cannot_bypass_rls():
+    import psycopg
+    from psycopg.rows import dict_row
+
+    settings = load_settings()
+    with psycopg.connect(settings.database_url_super, row_factory=dict_row) as admin:
+        rows = admin.execute(
+            """
+            SELECT rolname, rolsuper, rolbypassrls
+            FROM pg_roles
+            WHERE rolname IN ('daftar_app', 'daftar_worker')
+            ORDER BY rolname
+            """
+        ).fetchall()
+    assert [row["rolname"] for row in rows] == ["daftar_app", "daftar_worker"]
+    for row in rows:
+        assert row["rolsuper"] is False
+        assert row["rolbypassrls"] is False
+
+
 def test_minor_unit_columns_are_bigint():
     settings = load_settings()
     import psycopg
@@ -239,6 +272,50 @@ def test_password_is_not_stored_and_unlocks_the_pdf(ctx, caplog):
     assert all("synthetic" not in row[0] and "password" not in row[0] for row in jobs)
     assert "synthetic" not in caplog.text
     assert all("synthetic" not in record.getMessage() for record in caplog.records)
+
+
+def test_unlock_request_line_is_logged_without_the_body(caplog):
+    """The worker access log is the request line. The JSON body never reaches it."""
+    import json
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+
+    from daftar.worker import UnlockHandler
+
+    secret = "synthetic-body-secret-not-for-logs"
+
+    class Handler(UnlockHandler):
+        pass
+
+    Handler.settings = load_settings()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    caplog.set_level(logging.INFO, logger="daftar.worker")
+
+    def post(token: str, payload: dict) -> None:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/unlock",
+            data=json.dumps(payload).encode(),
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(request, timeout=5)
+        except urllib.error.HTTPError:
+            return
+
+    try:
+        post("wrong-token", {"statementId": "x", "userId": "y", "password": secret})
+        post(Handler.settings.worker_token, {"password": secret})
+    finally:
+        server.shutdown()
+    assert secret not in caplog.text
+    assert all(secret not in record.getMessage() for record in caplog.records)
+    assert "POST /unlock" in caplog.text
 
 
 def test_every_transaction_has_a_source_box(ctx):

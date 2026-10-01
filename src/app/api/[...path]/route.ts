@@ -29,6 +29,7 @@ import {
   transactionMeta,
   type TxnQuery,
 } from "@/server/data";
+import { forwardUnlock } from "@/server/unlock-proxy";
 import { patchTransaction } from "@/server/data";
 
 type Ctx = { params: Promise<{ path: string[] }> };
@@ -176,17 +177,13 @@ export async function POST(request: Request, contextParams: Ctx) {
       const body = await request.json();
       const password = String(body.password || "");
       if (!password) return NextResponse.json({ error: "password_required" }, { status: 400 });
-      const worker = process.env.WORKER_BASE_URL || "http://127.0.0.1:4711";
-      const response = await fetch(`${worker}/unlock`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.WORKER_TOKEN || "dev-worker-token"}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ statementId: path[1], userId: session.userId, password }),
+      // The body is forwarded and then dropped. It is not written to the log.
+      const forwarded = await forwardUnlock({
+        statementId: path[1],
+        userId: session.userId,
+        password,
       });
-      const payload = await response.json().catch(() => ({ error: "worker_unavailable" }));
-      return NextResponse.json(payload, { status: response.ok ? 200 : response.status });
+      return NextResponse.json(forwarded.payload, { status: forwarded.status });
     }
     if (path[0] === "statements" && path[2] === "approve") {
       const result = await approveStatement(session.userId, session.clientId, path[1]);

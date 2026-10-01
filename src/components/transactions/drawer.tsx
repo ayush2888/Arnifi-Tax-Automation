@@ -256,7 +256,7 @@ export function RecordDrawer({
             <TabsContent value="source" className="mt-3 overflow-y-auto">
               {!source ? <p className="text-sm text-muted-foreground">Loading the source page…</p> : null}
               {source ? (
-                <div className="relative inline-block max-w-full">
+                <div className="relative inline-block max-w-full" data-testid="source-page">
                   {/* Signed URL, short-lived. The file itself stays private. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={source.url} alt="Statement page with the selected row" className="max-w-full rounded-md border border-border" />

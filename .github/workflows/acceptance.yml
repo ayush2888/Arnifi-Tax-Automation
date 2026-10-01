@@ -61,3 +61,7 @@ jobs:
         run: pytest -v --tb=short
       - name: Web acceptance tests
         run: npm ci && npm test
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser grid scroll
+        run: npx playwright test

@@ -30,7 +30,7 @@ Copy `.env.example` to `.env` only if you run the processes outside Compose. The
 
 ## Money, tenants, and files
 
-Amounts are integer fils plus a currency code. A fractional number is rejected.
+Amounts are integer minor units at a scale of 2 (hundredths of the major unit). That matches AED fils. A fractional JSON number is rejected, and a third decimal place is rejected rather than rounded. Kuwaiti dinar, Bahraini dinar, and Omani rial (KWD, BHD, OMR) are quoted to three decimal places, so Phase 1 does not store those currencies.
 
 Each request sets `app.current_user_id`. Row-level security hides other clients. IBANs are encrypted; the interface shows the mask. Uploaded files are private objects. The browser receives a signed URL that expires in five minutes. A PDF password is sent to the worker for the unlock request and is not stored.
 
@@ -40,7 +40,10 @@ Each request sets `app.current_user_id`. Row-level security hides other clients.
 python -m pip install -e "./worker[dev]"
 cd worker && pytest -q
 npm test
+npx playwright test
 ```
+
+`npx playwright test` opens the transactions grid in Chromium, scrolls 50,000 rows, records the time, and saves a screenshot of the source highlight. It uses the `daftar_e2e` database and the local object store on port 59000.
 
 Python covers parsing, OCR routing, balance checks, duplicates, Arabic round-trip, column-map reuse, and cross-client access. Node covers money formatting, the 50,000-row window, source-highlight geometry, corrections versus an explicit rule, and CSV export using the same amount strings as the screen.
 
