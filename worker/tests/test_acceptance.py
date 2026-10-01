@@ -82,6 +82,14 @@ def test_text_pdf_does_not_use_ocr_and_scanned_pdf_does(ctx):
     _assert_amounts(conn, text_id, _expected("statement_text.pdf"))
     assert "ocr" not in _methods(conn, text_id)
     assert "pdf_text" in _methods(conn, text_id)
+    ocr_events = conn.execute(
+        """
+        SELECT count(*) AS n FROM processing_events
+        WHERE statement_id = %s AND (stage = 'ocr' OR method = 'ocr')
+        """,
+        (text_id,),
+    ).fetchone()["n"]
+    assert ocr_events == 0
 
     scanned_id = _ingest(conn, storage, "statement_scanned.pdf")
     _assert_amounts(conn, scanned_id, _expected("statement_scanned.pdf"), descriptions=True)
@@ -105,6 +113,35 @@ def test_broken_running_balance_flags_exact_rows(ctx):
             assert row["review_status"] == "needs_review"
         else:
             assert "balance_break" not in row["flags"]
+
+
+def test_xlsx_fixture_matches_expected_amounts(ctx):
+    conn, storage = ctx
+    statement_id = _ingest(conn, storage, "statement_title.xlsx")
+    _assert_amounts(conn, statement_id, _expected("statement_title.xlsx"))
+    assert _statement(conn, statement_id)["extraction_method"] == "xlsx"
+
+
+def test_image_fixture_matches_expected_amounts(ctx):
+    conn, storage = ctx
+    statement_id = _ingest(conn, storage, "statement_photo.png")
+    _assert_amounts(conn, statement_id, _expected("statement_photo.png"), descriptions=True)
+    assert "ocr" in _methods(conn, statement_id)
+
+
+def test_text_pdf_produces_zero_ocr_events(ctx):
+    conn, storage = ctx
+    statement_id = _ingest(conn, storage, "statement_text.pdf")
+    _assert_amounts(conn, statement_id, _expected("statement_text.pdf"))
+    ocr_events = conn.execute(
+        """
+        SELECT count(*) AS n FROM processing_events
+        WHERE statement_id = %s AND (stage = 'ocr' OR method = 'ocr')
+        """,
+        (statement_id,),
+    ).fetchone()["n"]
+    assert ocr_events == 0
+    assert _statement(conn, statement_id)["extraction_method"] == "pdf_text"
 
 
 def test_wrong_closing_balance_needs_review(ctx):
@@ -197,8 +234,11 @@ def test_password_is_not_stored_and_unlocks_the_pdf(ctx, caplog):
             SELECT stage || ' ' || method FROM processing_events
             """
         ).fetchall()
+        jobs = admin.execute("SELECT COALESCE(payload::text, '') FROM jobs").fetchall()
     assert all("synthetic" not in row[0] for row in texts)
+    assert all("synthetic" not in row[0] and "password" not in row[0] for row in jobs)
     assert "synthetic" not in caplog.text
+    assert all("synthetic" not in record.getMessage() for record in caplog.records)
 
 
 def test_every_transaction_has_a_source_box(ctx):
@@ -227,6 +267,7 @@ def test_row_level_security_hides_other_clients(ctx):
 
     settings = load_settings()
     with connect(settings.database_url, NINA) as nina:
+        assert nina.execute("SELECT current_user AS role").fetchone()["role"] == "daftar_app"
         hidden = nina.execute("SELECT count(*) AS n FROM bank_transactions").fetchone()["n"]
         assert hidden == 0
         clients = {str(row["id"]) for row in nina.execute("SELECT id FROM clients").fetchall()}
@@ -243,6 +284,67 @@ def test_row_level_security_hides_other_clients(ctx):
                 (HARBOUR, OMAR),
             )
             omar.commit()
+
+
+def test_forced_rls_and_set_local_is_transaction_scoped(ctx):
+    import psycopg
+    from psycopg.rows import dict_row
+
+    conn, _storage = ctx
+    settings = load_settings()
+    with psycopg.connect(settings.database_url, row_factory=dict_row) as raw:
+        assert raw.execute("SELECT current_user AS role").fetchone()["role"] == "daftar_app"
+        raw.execute("BEGIN")
+        raw.execute("SELECT set_config('app.current_user_id', %s, true)", (OMAR,))
+        assert raw.execute("SELECT current_setting('app.current_user_id', true) AS v").fetchone()["v"] == OMAR
+        raw.execute("COMMIT")
+        leftover = raw.execute("SELECT current_setting('app.current_user_id', true) AS v").fetchone()["v"]
+        assert leftover in ("", None)
+    with psycopg.connect(settings.worker_database_url, row_factory=dict_row) as worker:
+        assert worker.execute("SELECT current_user AS role").fetchone()["role"] == "daftar_worker"
+    with psycopg.connect(settings.database_url_super, row_factory=dict_row) as admin:
+        rows = admin.execute(
+            """
+            SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relkind = 'r'
+            """
+        ).fetchall()
+        names = {row["relname"] for row in rows}
+        assert {"bank_transactions", "files", "statements", "parser_profiles", "jobs"} <= names
+        assert all(row["relrowsecurity"] and row["relforcerowsecurity"] for row in rows)
+    conn.execute("SELECT 1")
+    conn.commit()
+    peek = conn._raw.execute("SELECT current_setting('app.current_user_id', true) AS v").fetchone()["v"]
+    conn._raw.rollback()
+    assert peek in ("", None)
+
+
+def test_profiles_are_keyed_by_bank_file_type_and_header_fingerprint(ctx):
+    conn, storage = ctx
+    _ingest(conn, storage, "statement_utf8.csv", confirm=True)
+    xlsx_id = _ingest(conn, storage, "statement_title.xlsx", confirm=False)
+    xlsx = _statement(conn, xlsx_id)
+    assert xlsx["error"] == "mapping_unconfirmed"
+    assert _rows(conn, xlsx_id) == []
+    odd_id = _ingest(conn, storage, "statement_odd.csv", account_id=NORTHWIND, confirm=False)
+    odd = _statement(conn, odd_id)
+    assert odd["error"] == "mapping_unconfirmed"
+    assert odd["proposed_mapping"]["fileType"] == "csv"
+    assert odd["proposed_mapping"]["headerFingerprint"] != xlsx["proposed_mapping"]["headerFingerprint"]
+    _confirm(conn, odd_id)
+    reused = _ingest(conn, storage, "statement_odd_feb.csv", account_id=NORTHWIND, confirm=False)
+    assert _statement(conn, reused)["error"] is None
+    assert len(_rows(conn, reused)) == 2
+    profiles = conn.execute(
+        "SELECT bank_name, file_type, header_fingerprint FROM parser_profiles ORDER BY file_type"
+    ).fetchall()
+    keys = [(row["bank_name"], row["file_type"], row["header_fingerprint"]) for row in profiles]
+    assert len(keys) == len(set(keys))
+    assert {row["file_type"] for row in profiles} == {"csv"}
+    assert len({row["header_fingerprint"] for row in profiles}) == 2
+    assert {row["bank_name"] for row in profiles} == {"Northwind Commercial Bank"}
 
 
 def test_worker_queue_claims_a_job(ctx):

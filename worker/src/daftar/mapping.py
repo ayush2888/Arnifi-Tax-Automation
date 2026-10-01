@@ -109,6 +109,14 @@ def field_for_header(header: str) -> str | None:
     return None
 
 
+def header_fingerprint(headers: list[str]) -> str:
+    """Stable id for a header row. Case and surrounding space do not create a new profile."""
+    import hashlib
+
+    normalized = "\n".join(header.strip().casefold() for header in headers)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 def propose_column_map(headers: list[str]) -> dict[str, str]:
     proposal: dict[str, str] = {}
     used: set[str] = set()

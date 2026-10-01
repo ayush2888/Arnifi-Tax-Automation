@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import type { VirtualItem } from "@tanstack/react-virtual";
+
+import { VirtualGrid, type VirtualGridHandle } from "./virtual-grid";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +22,7 @@ export function Workspace() {
   const pathname = usePathname();
   const search = useSearchParams();
   const record = search.get("record");
-  const parentRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<VirtualGridHandle>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
   const [columns, setColumns] = useState<Column[]>(DEFAULT_COLUMNS);
@@ -104,14 +106,7 @@ export function Workspace() {
     };
   }, [queryString, revision]);
 
-  const virtualizer = useVirtualizer({
-    count: slotCount,
-    getScrollElement: () => parentRef.current,
-    estimateSize: (index) => (months && locate(index, total, months).type === "header" ? 28 : 36),
-    overscan: 8,
-  });
-
-  const virtualItems = virtualizer.getVirtualItems();
+  const [virtualItems, setVirtualItems] = useState<VirtualItem[]>([]);
   useEffect(() => {
     if (!virtualItems.length || !total) return;
     const indexes = virtualItems
@@ -213,13 +208,13 @@ export function Workspace() {
       event.preventDefault();
       const next = Math.min(total - 1, active + 1);
       setActive(next);
-      virtualizer.scrollToIndex(months ? indexForRow(next, months) : next);
+      gridRef.current?.scrollToIndex(months ? indexForRow(next, months) : next);
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
       const next = Math.max(0, active - 1);
       setActive(next);
-      virtualizer.scrollToIndex(months ? indexForRow(next, months) : next);
+      gridRef.current?.scrollToIndex(months ? indexForRow(next, months) : next);
     }
     if (event.key === "Enter") {
       const row = rowAt(active);
@@ -334,15 +329,15 @@ export function Workspace() {
         </p>
       ) : null}
       {total > 0 ? (
-        <div
-          ref={parentRef}
-          tabIndex={0}
+        <VirtualGrid
+          ref={gridRef}
+          count={slotCount}
+          estimateSize={(index) => (months && locate(index, total, months).type === "header" ? 28 : 36)}
+          onVirtualItems={setVirtualItems}
           onKeyDown={onKeyDown}
-          className="h-[calc(100vh-320px)] min-h-80 overflow-auto rounded-lg border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Transactions grid"
-        >
-          <div style={{ width: tableWidth, minWidth: "100%" }}>
-            <div className="sticky top-0 z-30 flex border-b border-border bg-muted text-xs uppercase tracking-wide text-muted-foreground">
+          width={tableWidth}
+          header={
+            <div className="sticky top-0 z-30 flex border-b border-border bg-muted text-xs uppercase tracking-wide text-muted-foreground" style={{ width: tableWidth, minWidth: "100%" }}>
               {visible.map((column) => (
                 <div key={column.id} className="relative shrink-0 px-2 py-2" style={{ width: column.width }}>
                   <button type="button" className="font-medium" onClick={() => toggleSort(column.id)}>
@@ -359,38 +354,32 @@ export function Workspace() {
                 </div>
               ))}
             </div>
-            <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
-              {virtualItems.map((item) => {
-                const slot = locate(item.index, total, months);
-                if (slot.type === "header") {
-                  return (
-                    <div key={item.key} className="absolute top-0 left-0 flex items-center bg-secondary px-2 text-xs font-medium" style={{ transform: `translateY(${item.start}px)`, height: item.size, width: tableWidth }}>
-                      {slot.month}
-                    </div>
-                  );
-                }
-                const row = rowAt(slot.rowIndex);
-                return (
+          }
+          renderItem={(item) => {
+            const slot = locate(item.index, total, months);
+            if (slot.type === "header") {
+              return (
+                <div className="flex items-center bg-secondary px-2 text-xs font-medium" style={{ height: item.size, width: tableWidth }}>
+                  {slot.month}
+                </div>
+              );
+            }
+            const row = rowAt(slot.rowIndex);
+            return (
+              <div className={`flex border-b border-border text-sm ${active === slot.rowIndex ? "bg-muted" : ""}`} style={{ height: item.size, width: tableWidth }}>
+                {row ? visible.map((column) => (
                   <div
-                    key={item.key}
-                    className={`absolute top-0 left-0 flex border-b border-border text-sm ${active === slot.rowIndex ? "bg-muted" : ""}`}
-                    style={{ transform: `translateY(${item.start}px)`, height: item.size, width: tableWidth }}
+                    key={column.id}
+                    className={`shrink-0 truncate px-2 py-1.5 ${column.align === "right" ? "nums text-right" : ""} ${column.id === "reference" ? "sticky left-0 z-20 bg-card" : ""}`}
+                    style={{ width: column.width }}
                   >
-                    {row ? visible.map((column) => (
-                      <div
-                        key={column.id}
-                        className={`shrink-0 truncate px-2 py-1.5 ${column.align === "right" ? "nums text-right" : ""} ${column.id === "reference" ? "sticky left-0 z-20 bg-card" : ""}`}
-                        style={{ width: column.width }}
-                      >
-                        {renderCell(column.id, row)}
-                      </div>
-                    )) : <span className="px-2 text-muted-foreground">Loading…</span>}
+                    {renderCell(column.id, row)}
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+                )) : <span className="px-2 text-muted-foreground">Loading…</span>}
+              </div>
+            );
+          }}
+        />
       ) : null}
       {record ? (
         <RecordDrawer

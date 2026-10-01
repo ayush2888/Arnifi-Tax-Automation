@@ -18,7 +18,7 @@ from psycopg.types.json import Json
 
 from daftar.errors import CodedError
 from daftar.extract import Extraction, extract_file
-from daftar.mapping import parse_date, profile_fits, propose_column_map
+from daftar.mapping import header_fingerprint, parse_date, profile_fits, propose_column_map
 from daftar.money import MoneyError, parse_amount
 from daftar.settings import Settings, load_settings
 from daftar.sniff import sniff
@@ -30,12 +30,48 @@ logger = logging.getLogger("daftar.worker")
 OMAR = "55555555-5555-4555-8555-555555555555"
 
 
-def connect(url: str, user_id: str | None = None):
-    conn = psycopg.connect(url, row_factory=dict_row)
-    if user_id:
-        conn.execute("SELECT set_config('app.current_user_id', %s, false)", (user_id,))
-        conn.commit()
-    return conn
+class AppConn:
+    """App connection that sets the user for the current transaction only.
+
+    `set_config(..., true)` is SET LOCAL. The value dies at COMMIT or ROLLBACK,
+    so a pooled connection cannot keep the previous user.
+    """
+
+    def __init__(self, raw, user_id: str | None):
+        self._raw = raw
+        self.user_id = user_id
+
+    def bind_user(self, user_id: str) -> None:
+        self.user_id = user_id
+
+    def execute(self, query, params=None, **kwargs):
+        if self.user_id:
+            self._raw.execute("SELECT set_config('app.current_user_id', %s, true)", (self.user_id,))
+        return self._raw.execute(query, params, **kwargs)
+
+    def commit(self):
+        return self._raw.commit()
+
+    def rollback(self):
+        return self._raw.rollback()
+
+    def close(self):
+        return self._raw.close()
+
+    def transaction(self, *args, **kwargs):
+        return self._raw.transaction(*args, **kwargs)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
+
+def connect(url: str, user_id: str | None = None) -> AppConn:
+    raw = psycopg.connect(url, row_factory=dict_row)
+    return AppConn(raw, user_id)
 
 
 def register_upload(
@@ -125,6 +161,7 @@ def process_statement(conn, storage: ObjectStore, statement_id: str, password: s
         _event(conn, row, "parse" if method != "ocr" else "ocr", method, 1 if method == "ocr" else page_no, started)
     _store_extraction(conn, storage, row, extraction)
     column_map = propose_column_map(extraction.headers)
+    fingerprint = header_fingerprint(extraction.headers)
     proposal = {
         "columnMap": column_map,
         "headers": extraction.headers,
@@ -132,8 +169,10 @@ def process_statement(conn, storage: ObjectStore, statement_id: str, password: s
         "decimalSeparator": extraction.decimal_sep,
         "thousandsSeparator": extraction.thousands_sep,
         "encoding": extraction.encoding,
+        "fileType": kind,
+        "headerFingerprint": fingerprint,
     }
-    profile = _confirmed_profile(conn, row["firm_id"], row["bank_name"])
+    profile = _confirmed_profile(conn, row["firm_id"], row["bank_name"], kind, fingerprint)
     use_profile = profile is not None and profile_fits(profile["column_map"], extraction.headers)
     method = _extraction_method(extraction)
     conn.execute(
@@ -179,26 +218,29 @@ def confirm_mapping(conn, statement_id: str, user_id: str, payload: dict) -> Non
     date_format = payload.get("dateFormat") or "%Y-%m-%d"
     decimal_sep = payload.get("decimalSeparator") or "."
     thousands_sep = payload.get("thousandsSeparator") or ","
+    mapping = row["proposed_mapping"] or {}
+    file_type = mapping.get("fileType") or "csv"
+    fingerprint = mapping.get("headerFingerprint") or header_fingerprint(mapping.get("headers") or [])
     version = conn.execute(
         """
         SELECT COALESCE(MAX(version), 0) + 1 AS version
         FROM parser_profiles
-        WHERE firm_id = %s AND bank_name = %s
+        WHERE firm_id = %s AND bank_name = %s AND file_type = %s AND header_fingerprint = %s
         """,
-        (row["firm_id"], row["bank_name"]),
+        (row["firm_id"], row["bank_name"], file_type, fingerprint),
     ).fetchone()["version"]
-    encoding = None
-    if row["proposed_mapping"]:
-        encoding = row["proposed_mapping"].get("encoding")
+    encoding = mapping.get("encoding")
     conn.execute(
         """
         INSERT INTO parser_profiles
-          (firm_id, bank_name, column_map, date_format, decimal_separator, thousands_separator, encoding, version, confirmed_by)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+          (firm_id, bank_name, file_type, header_fingerprint, column_map, date_format, decimal_separator, thousands_separator, encoding, version, confirmed_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             row["firm_id"],
             row["bank_name"],
+            file_type,
+            fingerprint,
             Json(column_map),
             date_format,
             decimal_sep,
@@ -523,16 +565,17 @@ def _load(conn, statement_id: str) -> dict:
     return row
 
 
-def _confirmed_profile(conn, firm_id: str, bank_name: str):
+def _confirmed_profile(conn, firm_id: str, bank_name: str, file_type: str, fingerprint: str):
     return conn.execute(
         """
         SELECT column_map, date_format, decimal_separator, thousands_separator, encoding, version
         FROM parser_profiles
-        WHERE firm_id = %s AND bank_name = %s AND confirmed_by IS NOT NULL
+        WHERE firm_id = %s AND bank_name = %s AND file_type = %s AND header_fingerprint = %s
+          AND confirmed_by IS NOT NULL
         ORDER BY version DESC
         LIMIT 1
         """,
-        (firm_id, bank_name),
+        (firm_id, bank_name, file_type, fingerprint),
     ).fetchone()
 
 
@@ -607,8 +650,7 @@ def _as_date(value):
 def run_queued_job(conn, storage: ObjectStore, job: dict) -> None:
     """Execute one claimed job. The password field is intentionally absent."""
     user_id = str(job["uploaded_by"])
-    conn.execute("SELECT set_config('app.current_user_id', %s, false)", (user_id,))
-    conn.commit()
+    conn.bind_user(user_id)
     statement_id = str(job["statement_id"])
     try:
         if job["kind"] == "ingest":
@@ -626,7 +668,7 @@ def run_queued_job(conn, storage: ObjectStore, job: dict) -> None:
             conn.rollback()
         except Exception:
             pass
-        conn.execute("SELECT set_config('app.current_user_id', %s, false)", (user_id,))
+        conn.bind_user(user_id)
         _fail(conn, statement_id, code)
         conn.execute("SELECT complete_job(%s, 'failed', %s)", (job["id"], code))
         conn.commit()

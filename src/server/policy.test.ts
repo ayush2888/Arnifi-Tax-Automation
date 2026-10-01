@@ -63,9 +63,15 @@ test("a correction is logged without a rule until Save as rule is called", async
       [txnId],
     );
     assert.equal(explicit.rows[0].saved_as_rule, true);
-    const csv = await exportTransactions(OMAR, AL_NOOR, { q: "POLICY-ROW-XYZ", tab: "all" });
+    await admin.query(`UPDATE bank_transactions SET description_clean = $2, description_raw = $2 WHERE id = $1`, [
+      txnId,
+      '=HYPERLINK("http://evil.test")',
+    ]);
+    const csv = await exportTransactions(OMAR, AL_NOOR, { q: "HYPERLINK", tab: "all" });
     assert.match(csv, new RegExp(formatMinor(25000)));
     assert.match(csv, /Unmatched/);
+    assert.match(csv, /'=HYPERLINK/);
+    assert.equal(csv.includes(',=HYPERLINK'), false);
     const lines = csv.trim().split("\n");
     assert.equal(lines.length, 2);
   } finally {

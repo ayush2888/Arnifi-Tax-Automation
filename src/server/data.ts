@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 
 import { withUser } from "@/lib/db";
+import { csvCell } from "@/lib/csv";
 import { assertMinor, formatMinor } from "@/lib/money";
 import { putObject } from "@/lib/storage";
 
@@ -747,7 +748,3 @@ function mapTxn(row: Record<string, unknown>) {
   };
 }
 
-function csvCell(value: string) {
-  if (/[",\n]/.test(value)) return `"${value.replaceAll('"', '""')}"`;
-  return value;
-}

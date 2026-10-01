@@ -111,6 +111,8 @@ CREATE TABLE parser_profiles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   firm_id uuid NOT NULL REFERENCES firms(id),
   bank_name text NOT NULL,
+  file_type text NOT NULL,
+  header_fingerprint text NOT NULL,
   column_map jsonb NOT NULL,
   date_format text,
   decimal_separator text NOT NULL DEFAULT '.',
@@ -118,7 +120,8 @@ CREATE TABLE parser_profiles (
   encoding text,
   version int NOT NULL,
   confirmed_by uuid REFERENCES users(id),
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (firm_id, bank_name, file_type, header_fingerprint, version)
 );
 
 CREATE TABLE categories (
@@ -366,6 +369,23 @@ ALTER TABLE statement_extractions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE statement_pages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE saved_views ENABLE ROW LEVEL SECURITY;
 ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
+
+-- FORCE applies the policies to the table owner as well. Superusers still bypass.
+DO $$
+DECLARE
+  tbl text;
+BEGIN
+  FOREACH tbl IN ARRAY ARRAY[
+    'firms', 'clients', 'users', 'user_client_access', 'bank_accounts', 'files',
+    'statements', 'parser_profiles', 'categories', 'rules', 'bank_transactions',
+    'corrections', 'audit_log', 'processing_events', 'statement_extractions',
+    'statement_pages', 'saved_views', 'jobs'
+  ]
+  LOOP
+    EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', tbl);
+  END LOOP;
+END
+$$;
 
 CREATE POLICY firms_read ON firms FOR SELECT USING (id = app_firm_id());
 

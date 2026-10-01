@@ -47,10 +47,9 @@ jobs:
       - name: Install worker
         run: pip install -e "./worker[dev]" "moto[server]"
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITLEAKS_CONFIG: .gitleaks.toml
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz | tar -xz -C /tmp
+          /tmp/gitleaks detect --source . --config .gitleaks.toml --redact --no-banner
       - name: Object storage stand-in
         run: |
           moto_server -p 59000 -H 127.0.0.1 >/tmp/moto.log 2>&1 &
@@ -59,6 +58,6 @@ jobs:
         run: psql -h 127.0.0.1 -U daftar -d postgres -c "CREATE DATABASE daftar_test OWNER daftar;"
       - name: Python acceptance tests
         working-directory: worker
-        run: pytest -q
+        run: pytest -v --tb=short
       - name: Web acceptance tests
         run: npm ci && npm test
