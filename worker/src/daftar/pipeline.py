@@ -16,6 +16,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
+from daftar.currency import declared_currency, reject_unsupported_currency
 from daftar.errors import CodedError
 from daftar.extract import Extraction, extract_file
 from daftar.mapping import header_fingerprint, parse_date, profile_fits, propose_column_map
@@ -104,6 +105,7 @@ def register_upload(
     kind, mime = sniff(content)
     if kind == "unknown":
         raise CodedError("unsupported_type")
+    reject_unsupported_currency(declared_currency(content))
     file_id = str(uuid.uuid4())
     statement_id = str(uuid.uuid4())
     job_id = str(uuid.uuid4())
@@ -156,6 +158,15 @@ def process_statement(conn, storage: ObjectStore, statement_id: str, password: s
             conn.commit()
             return
         _fail(conn, statement_id, exc.code)
+        return
+    try:
+        reject_unsupported_currency((extraction.currency or row["currency"] or "").upper())
+    except CodedError as exc:
+        conn.execute(
+            "UPDATE statements SET status = 'failed', error = %s WHERE id = %s",
+            (exc.message, statement_id),
+        )
+        conn.commit()
         return
     for page_no, method in extraction.methods:
         _event(conn, row, "parse" if method != "ocr" else "ocr", method, 1 if method == "ocr" else page_no, started)

@@ -4,9 +4,16 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Artifact upload needs actions: write. Everything else stays read-only.
+    permissions:
+      contents: read
+      actions: write
     services:
       postgres:
         image: postgres:16
@@ -34,22 +41,22 @@ jobs:
       OCR_PROVIDER: local
       PDF_PROBE_MIN_CHARS: "30"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
       - name: Install Tesseract
-        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ara
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ara fonts-dejavu-core
       - name: Install worker
         run: pip install -e "./worker[dev]" "moto[server]"
       - name: Secret scan
         run: |
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz | tar -xz -C /tmp
-          /tmp/gitleaks detect --source . --config .gitleaks.toml --redact --no-banner
+          /tmp/gitleaks detect --source . --log-opts="--all" --config .gitleaks.toml --redact --no-banner
       - name: Object storage stand-in
         run: |
           moto_server -p 59000 -H 127.0.0.1 >/tmp/moto.log 2>&1 &
@@ -65,3 +72,17 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Browser grid scroll
         run: npx playwright test
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-report
+          path: playwright-report/
+          if-no-files-found: error
+      - name: Upload source highlight
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-highlight
+          path: e2e/artifacts/source-highlight.png
+          if-no-files-found: error

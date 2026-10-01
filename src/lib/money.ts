@@ -4,7 +4,7 @@
  * decimal is rejected here so it is never stored as a rounded hundredth.
  */
 
-export const THREE_DECIMAL_CURRENCIES = ["KWD", "BHD", "OMR"] as const;
+export { THREE_DECIMAL_CURRENCIES } from "@/lib/currency";
 
 export class MoneyTypeError extends Error {
   constructor(field: string) {
@@ -30,6 +30,7 @@ export function displayToMinor(input: string): number | null {
   }
   const negative = trimmed.startsWith("-");
   const [majorPart, fracPart = ""] = trimmed.replace("-", "").replace(/,/g, "").split(".");
+  // "1.230" is rejected. A trailing zero still counts as a third decimal place.
   if (fracPart.length > 2) throw new MoneyTypeError("invalid_money");
   const minor = Number(majorPart) * 100 + Number(fracPart.padEnd(2, "0"));
   if (!Number.isSafeInteger(minor)) throw new MoneyTypeError("invalid_money");

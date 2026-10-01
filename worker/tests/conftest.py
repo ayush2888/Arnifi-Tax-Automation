@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import psycopg
@@ -49,7 +50,9 @@ def migrated_database():
     from daftar.bootstrap import bootstrap
 
     bootstrap()
-    subprocess.check_call([str(ROOT / ".venv" / "bin" / "python"), str(ROOT / "fixtures" / "generate.py")])
+    # CI installs the worker into the interpreter running pytest. A repo-local
+    # .venv exists on a developer machine and is absent on GitHub-hosted runners.
+    subprocess.check_call([sys.executable, str(ROOT / "fixtures" / "generate.py")])
     yield
 
 

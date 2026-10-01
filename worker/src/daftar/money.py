@@ -76,6 +76,8 @@ def parse_amount(
         raise MoneyError("bad_amount")
     if "." in text:
         major, frac = text.split(".", 1)
+        # "1.230" is rejected. A trailing zero is still a third decimal place,
+        # so it is not trimmed and accepted as 1.23.
         if len(frac) > 2:
             raise MoneyError("amount_precision")
         frac = frac.ljust(2, "0")
