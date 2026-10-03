@@ -32,7 +32,7 @@ const NAV = [
   { href: "/", label: "Clients", icon: Scale },
   { href: "/journals", label: "Journals", icon: Landmark },
   { href: "/inbox", label: "Inbox", icon: Inbox },
-  { href: "/vat201", label: "VAT draft", icon: Receipt },
+  { href: "/vat201", label: "VAT201", icon: Receipt },
   { href: "/statements", label: "Statements", icon: ScrollText },
   { href: "/transactions", label: "Transactions", icon: Table2 },
   { href: "/rules", label: "Rules", icon: BookOpenText },

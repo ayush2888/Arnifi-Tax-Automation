@@ -1,0 +1,127 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import pg from "pg";
+
+import { LedgerError } from "./errors";
+import { createJournal, createSyntheticDocument, approveExtractionAndPost } from "./ledger";
+import {
+  approveVat201Pack,
+  downloadVat201Pack,
+  dualControlRequired,
+  hashVat201Payload,
+  listDownloadEvents,
+  prepareVat201Pack,
+  type Vat201Payload,
+} from "./release";
+
+const OMAR = "55555555-5555-4555-8555-555555555555";
+const LAYLA = "44444444-4444-4444-8444-444444444444";
+const AL_NOOR = "22222222-2222-4222-8222-222222222222";
+const PERIOD = "a0000001-0000-4000-8000-000000000001";
+const AR = "a1000001-0000-4000-8000-000000000002";
+const REVENUE = "a1000001-0000-4000-8000-000000000007";
+const VAT_OUT = "a1000001-0000-4000-8000-000000000005";
+
+test("dual control is required during the Stage B window", () => {
+  assert.equal(dualControlRequired(new Date("2026-10-15T00:00:00.000Z")), true);
+  assert.equal(dualControlRequired(new Date("2027-02-01T00:00:00.000Z")), false);
+});
+
+test("VAT201 payload hash is stable for the same canonical inputs", () => {
+  const payload: Vat201Payload = {
+    kind: "VAT201",
+    periodId: PERIOD,
+    periodLabel: "Q1 2026",
+    periodStart: "2026-01-01",
+    periodEnd: "2026-03-31",
+    boxes: { "1b": { taxableMinor: 100000, vatMinor: 5000 } },
+    totalOutputVat: 5000,
+    totalInputVat: 0,
+    netPayable: 5000,
+    journalEntryIds: ["b", "a"],
+    ruleVersion: "vat201-demo-v1",
+  };
+  const again = { ...payload, journalEntryIds: ["a", "b"] };
+  assert.equal(hashVat201Payload(payload), hashVat201Payload(again));
+});
+
+test("preparer cannot approve; Layla can release; upstream post marks stale; download logs", async (t) => {
+  const appUrl =
+    process.env.DATABASE_URL || "postgresql://daftar_app:daftar-local-only@127.0.0.1:5432/daftar_test";
+  process.env.DATABASE_URL = appUrl;
+  const adminUrl = process.env.DATABASE_URL_SUPER || appUrl.replace("://daftar_app:", "://daftar:");
+  const admin = new pg.Client({ connectionString: adminUrl });
+  try {
+    await admin.connect();
+  } catch {
+    t.skip("Postgres is not reachable");
+    return;
+  }
+  try {
+    const has = await admin.query(`SELECT to_regclass('public.release_packs') AS reg`);
+    if (!has.rows[0]?.reg) {
+      t.skip("release_packs not migrated");
+      return;
+    }
+
+    // Ensure Omar has a live draft figure to prepare.
+    const sales = await createSyntheticDocument(OMAR, AL_NOOR, {
+      periodId: PERIOD,
+      docType: "SALES_INVOICE",
+      originalName: "release-test-sales.json",
+      facts: {
+        entryDate: "2026-02-01",
+        invoiceNumber: "INV-REL-1",
+        counterparty: "Release Test Co",
+        taxableMinor: 20000,
+        vatMinor: 1000,
+      },
+    });
+    await approveExtractionAndPost(OMAR, AL_NOOR, sales.extractionId);
+
+    const prepared = await prepareVat201Pack(OMAR, AL_NOOR, PERIOD);
+    assert.equal(prepared.status, "PENDING_APPROVAL");
+
+    await assert.rejects(
+      () => approveVat201Pack(OMAR, AL_NOOR, prepared.id),
+      (error: unknown) =>
+        error instanceof LedgerError &&
+        error.code === "forbidden" &&
+        error.message === "preparer_cannot_approve",
+    );
+
+    const released = await approveVat201Pack(LAYLA, AL_NOOR, prepared.id);
+    assert.equal(released.status, "RELEASED");
+
+    const bundle = await downloadVat201Pack(OMAR, AL_NOOR, prepared.id, { ipHash: "abc", userAgent: "test" });
+    assert.equal(bundle.status, "RELEASED");
+    assert.ok(bundle.payload);
+    const events = await listDownloadEvents(OMAR, AL_NOOR, prepared.id);
+    assert.ok(events.length >= 1);
+
+    await createJournal(OMAR, AL_NOOR, {
+      periodId: PERIOD,
+      memo: "stale-release-test",
+      entryDate: "2026-02-05",
+      post: true,
+      lines: [
+        { accountId: AR, debitMinor: 1050 },
+        { accountId: REVENUE, creditMinor: 1000 },
+        { accountId: VAT_OUT, creditMinor: 50, vat201Box: "1b" },
+      ],
+    });
+
+    const stale = await admin.query(`SELECT status FROM release_packs WHERE id = $1`, [prepared.id]);
+    assert.equal(stale.rows[0].status, "STALE");
+
+    await assert.rejects(
+      () => downloadVat201Pack(OMAR, AL_NOOR, prepared.id),
+      (error: unknown) =>
+        error instanceof LedgerError &&
+        error.code === "forbidden" &&
+        error.message === "download_requires_released",
+    );
+  } finally {
+    await admin.end().catch(() => undefined);
+  }
+});
