@@ -5,6 +5,7 @@ import type { PoolClient } from "pg";
 import { withUser } from "@/lib/db";
 import { assertMinor } from "@/lib/money";
 import { LedgerError } from "@/server/errors";
+import { createOpenItemFromInvoice } from "@/server/recon";
 import { buildVat201Payload, dualControlRequired, markVatPacksStale } from "@/server/release";
 
 export { LedgerError };
@@ -460,13 +461,16 @@ export async function approveExtractionAndPost(userId: string, clientId: string,
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,'posted',$8,$9,now())`,
       [entryId, clientId, row.period_id, row.document_id, extractionId, memo, entryDate, contentHash, userId],
     );
+    let controlLineId: string | null = null;
+    let controlAmount = 0;
     for (const line of lines) {
+      const lineId = randomUUID();
       await db.query(
         `INSERT INTO journal_lines (
            id, entry_id, client_id, account_id, debit_minor, credit_minor, currency, vat201_box, line_memo
          ) VALUES ($1,$2,$3,$4,$5,$6,'AED',$7,$8)`,
         [
-          randomUUID(),
+          lineId,
           entryId,
           clientId,
           line.accountId,
@@ -476,6 +480,28 @@ export async function approveExtractionAndPost(userId: string, clientId: string,
           line.lineMemo || "",
         ],
       );
+      if (row.doc_type === "SALES_INVOICE" && line.accountId === coa.ar.id) {
+        controlLineId = lineId;
+        controlAmount = line.debitMinor ?? 0;
+      }
+      if (row.doc_type === "PURCHASE_INVOICE" && line.accountId === coa.ap.id) {
+        controlLineId = lineId;
+        controlAmount = line.creditMinor ?? 0;
+      }
+    }
+    if (controlLineId && controlAmount > 0) {
+      await createOpenItemFromInvoice(db, {
+        clientId,
+        periodId: row.period_id,
+        side: row.doc_type === "SALES_INVOICE" ? "AR" : "AP",
+        partyName: String(facts.counterparty || "Unknown"),
+        documentId: row.document_id,
+        journalEntryId: entryId,
+        journalLineId: controlLineId,
+        reference: String(facts.invoiceNumber || ""),
+        amountMinor: controlAmount,
+        openedOn: entryDate,
+      });
     }
     await db.query(`UPDATE documents SET status = 'posted' WHERE id = $1`, [row.document_id]);
     await markVatPacksStale(db, clientId, row.period_id);
