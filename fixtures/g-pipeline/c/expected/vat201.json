@@ -1,0 +1,11 @@
+{
+  "id": "g-pipeline-c-palm-q1-2026",
+  "source": "lab",
+  "boxes": {
+    "1b": { "taxableMinor": 0, "vatMinor": 0 }
+  },
+  "totalOutputVat": 0,
+  "totalInputVat": 0,
+  "netPayable": 0,
+  "notes": "Foreign rental treated out-of-scope / zero-rated in lab golden."
+}

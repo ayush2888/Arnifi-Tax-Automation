@@ -19,8 +19,10 @@ const PAGE_WIDTH = 640;
 const PAGE_HEIGHT = 800;
 const BBOX = { x: 48, y: 120, width: 520, height: 48, pageWidth: PAGE_WIDTH, pageHeight: PAGE_HEIGHT };
 
+const PGHOST = process.env.PGHOST || "127.0.0.1";
+
 function psql(database, args) {
-  execFileSync("psql", ["-h", "127.0.0.1", "-U", "daftar", "-d", database, "-v", "ON_ERROR_STOP=1", ...args], {
+  execFileSync("psql", ["-h", PGHOST, "-U", "daftar", "-d", database, "-v", "ON_ERROR_STOP=1", ...args], {
     env: { ...process.env, PGPASSWORD: "daftar-local-only" },
     stdio: ["ignore", "ignore", "inherit"],
   });
@@ -66,7 +68,7 @@ export default async function globalSetup() {
   psql("postgres", ["-c", "SELECT 1 FROM pg_database WHERE datname = 'daftar_e2e'"]);
   const exists = execFileSync(
     "psql",
-    ["-h", "127.0.0.1", "-U", "daftar", "-d", "postgres", "-tAc", "SELECT 1 FROM pg_database WHERE datname = 'daftar_e2e'"],
+    ["-h", PGHOST, "-U", "daftar", "-d", "postgres", "-tAc", "SELECT 1 FROM pg_database WHERE datname = 'daftar_e2e'"],
     { env: { ...process.env, PGPASSWORD: "daftar-local-only" }, encoding: "utf8" },
   ).trim();
   if (exists !== "1") {
@@ -77,8 +79,25 @@ export default async function globalSetup() {
   psql("daftar_e2e", ["-f", path.join(ROOT, "db/02-seed.sql")]);
   // Portal security gate adds clients.is_synthetic; API context() reads it on every authed call.
   psql("daftar_e2e", ["-f", path.join(ROOT, "db/12-security.sql")]);
+  // Stage G pipeline tables (inbox / profile). Ledger seed not required for grid scroll.
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/04-ledger.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/05-ledger-seed.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/13-pipeline.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/14-pipeline-seed.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/15-pipeline-demo.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/16-books.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/17-books-seed.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/18-books-phase0.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/19-books-demo-journals.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/20-books-coa-v2.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/21-books-phase0-fixes.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/22-books-alignment.sql")]);
 
-  const admin = new pg.Client({ connectionString: "postgresql://daftar:daftar-local-only@127.0.0.1:5432/daftar_e2e" });
+  const admin = new pg.Client({
+    connectionString:
+      process.env.DATABASE_URL_SUPER ||
+      `postgresql://daftar:daftar-local-only@${PGHOST}:5432/daftar_e2e`,
+  });
   await admin.connect();
   try {
     await admin.query(

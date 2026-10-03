@@ -12,7 +12,22 @@ export async function readSession(): Promise<Session | null> {
   return { userId, clientId };
 }
 
+export class SessionError extends Error {
+  code = "unauthorized" as const;
+  constructor() {
+    super("unauthorized");
+    this.name = "SessionError";
+  }
+}
+
 export async function requireSession(): Promise<Session> {
+  const session = await readSession();
+  if (!session) throw new SessionError();
+  return session;
+}
+
+/** Dev/e2e helper — only when cookies already present. */
+export async function requireSessionOrDemo(): Promise<Session> {
   const session = await readSession();
   if (!session) {
     return { userId: DEMO_USER_ID, clientId: DEMO_CLIENT_ID };

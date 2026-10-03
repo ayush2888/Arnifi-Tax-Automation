@@ -7,9 +7,15 @@
     "build": "next build --turbopack",
     "start": "next start -H 0.0.0.0 -p 43123",
     "lint": "eslint",
-    "test": "tsx --test src/lib/money.test.ts src/lib/currency.test.ts src/lib/csv.test.ts src/lib/grid-layout.test.ts src/lib/fetch-window.test.ts src/lib/highlight.test.ts src/components/transactions/scroll.test.tsx src/server/policy.test.ts src/server/ledger.test.ts src/server/release.test.ts src/server/recon.test.ts src/server/close.test.ts src/server/statements.test.ts src/server/ct.test.ts src/server/security-gate.test.ts src/server/vat201-compare.test.ts src/server/unlock-proxy.test.ts",
+    "test": "tsx --test src/lib/money.test.ts src/lib/currency.test.ts src/lib/csv.test.ts src/lib/date.test.ts src/lib/grid-layout.test.ts src/lib/fetch-window.test.ts src/lib/highlight.test.ts src/components/transactions/scroll.test.tsx src/server/policy.test.ts src/server/ledger.test.ts src/server/release.test.ts src/server/recon.test.ts src/server/close.test.ts src/server/statements.test.ts src/server/ct.test.ts src/server/security-gate.test.ts src/server/vat201-compare.test.ts src/server/pipeline-config.test.ts src/server/pipeline.test.ts src/server/propose.test.ts src/server/inbox-route.test.ts src/server/g-pipeline.test.ts src/server/stage-g-regression.test.ts src/server/unlock-proxy.test.ts src/server/books/journals.test.ts src/server/books/trial-balance.test.ts src/server/books/security.test.ts src/server/books/phase0-gaps.test.ts src/server/books/schedule-post.test.ts",
+    "lab:folder": "tsx scripts/lab/run-folder.ts",
     "test:e2e": "playwright test",
+    "test:e2e:docker": "node scripts/run-e2e-docker.mjs",
     "test:v1": "tsx --test src/server/vat201-compare.test.ts"
+  },
+  "optionalDependencies": {
+    "@esbuild/linux-x64": "0.28.2",
+    "@next/swc-linux-x64-gnu": "15.5.27"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1144.0",

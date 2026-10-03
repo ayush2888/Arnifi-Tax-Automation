@@ -1,0 +1,12 @@
+{
+  "id": "g-pipeline-b-caravan-2026-01",
+  "source": "lab",
+  "boxes": {
+    "1b": { "taxableMinor": 0, "vatMinor": 2500 },
+    "9": { "taxableMinor": 0, "vatMinor": 1500 }
+  },
+  "totalOutputVat": 2500,
+  "totalInputVat": 1500,
+  "netPayable": 1000,
+  "notes": "Journal-line VAT fallback; taxableMinor 0 until document facts are posted."
+}

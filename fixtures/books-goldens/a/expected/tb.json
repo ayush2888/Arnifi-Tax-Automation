@@ -1,0 +1,16 @@
+{
+  "id": "books-a-desert-falcon-2026-jun",
+  "source": "hand",
+  "periodLabel": "Jun 2026",
+  "balanced": true,
+  "totalDebit": 173950,
+  "totalCredit": 173950,
+  "accounts": {
+    "1120": { "debitMinor": 0, "creditMinor": 9400 },
+    "1430": { "debitMinor": 0, "creditMinor": 100 },
+    "2210": { "debitMinor": 1500, "creditMinor": 0 },
+    "2220": { "debitMinor": 1400, "creditMinor": 1400 },
+    "6200": { "debitMinor": 8000, "creditMinor": 0 }
+  },
+  "notes": "Monthly Jun 2026 period movements after pre–Phase 1 alignment. VAT two-step: return clears 2210/1430 into 2220; payment Dr 2220 / Cr bank 1400. Rent June schedule_post 8000. Bank Cr 9400 = rent 8000 + VAT pay 1400. Closing TB as of 30 Jun still balances (totals are closing, not period)."
+}

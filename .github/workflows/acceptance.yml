@@ -68,10 +68,10 @@ jobs:
         run: pytest -v --tb=short
       - name: Web acceptance tests
         run: npm ci && npm test
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
-      - name: Browser grid scroll
-        run: npx playwright test
+      - name: E2E database
+        run: psql -h 127.0.0.1 -U daftar -d postgres -c "CREATE DATABASE daftar_e2e OWNER daftar;"
+      - name: Browser e2e (Docker / Linux node_modules)
+        run: npm run test:e2e:docker
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

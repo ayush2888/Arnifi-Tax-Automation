@@ -97,12 +97,21 @@ def poll(settings, storage) -> None:
             with connect(settings.worker_database_url) as conn:
                 job = conn.execute("SELECT * FROM claim_job()").fetchone()
                 conn.commit()
-                if job is None or job["id"] is None:
-                    time.sleep(0.4)
-                    continue
-                from daftar.pipeline import run_queued_job
+                if job is not None and job["id"] is not None:
+                    from daftar.pipeline import run_queued_job
 
-                run_queued_job(conn, storage, job)
+                    run_queued_job(conn, storage, job)
+                    continue
+
+                from daftar.books_jobs import claim_books_job, run_books_job
+
+                books_job = claim_books_job(conn)
+                conn.commit()
+                if books_job is not None and books_job.get("id"):
+                    run_books_job(conn, dict(books_job))
+                    continue
+
+                time.sleep(0.4)
         except Exception:
             logger.error("poll error_type=worker_loop")
             time.sleep(1)

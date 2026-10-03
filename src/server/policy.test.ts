@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import pg from "pg";
 
-process.env.DATABASE_URL = "postgresql://daftar_app:daftar-local-only@127.0.0.1:5432/daftar_test";
+const appUrl =
+  process.env.DATABASE_URL || "postgresql://daftar_app:daftar-local-only@127.0.0.1:5432/daftar_test";
+process.env.DATABASE_URL = appUrl;
+const adminUrl =
+  process.env.DATABASE_URL_SUPER || appUrl.replace("://daftar_app:", "://daftar:");
 
 const OMAR = "55555555-5555-4555-8555-555555555555";
 const AL_NOOR = "22222222-2222-4222-8222-222222222222";
@@ -12,7 +16,7 @@ const RENT = "c1000000-0000-4000-8000-000000000002";
 test("a correction is logged without a rule until Save as rule is called", async () => {
   const { patchTransaction, createRule, exportTransactions } = await import("./data");
   const { formatMinor } = await import("../lib/money");
-  const admin = new pg.Client({ connectionString: "postgresql://daftar:daftar-local-only@127.0.0.1:5432/daftar_test" });
+  const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
   const fileId = crypto.randomUUID();
   const statementId = crypto.randomUUID();
@@ -93,7 +97,7 @@ test("a correction is logged without a rule until Save as rule is called", async
 
 test("listing stays windowed at 50,000 rows", async () => {
   const { listTransactions } = await import("./data");
-  const admin = new pg.Client({ connectionString: "postgresql://daftar:daftar-local-only@127.0.0.1:5432/daftar_test" });
+  const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
   const fileId = crypto.randomUUID();
   const statementId = crypto.randomUUID();

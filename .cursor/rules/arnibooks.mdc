@@ -1,0 +1,81 @@
+---
+description: arnibooks product constitution — journal SoR, synthetic-only security, CrossVal UX reference, books rebuild conventions
+alwaysApply: true
+---
+
+# Product
+
+arnibooks: Arnifi's internal bookkeeping product for UAE SME clients, used by Arnifi accountants (not client users yet).
+End goal: source documents in → journal → ledger → trial balance → P&L, Balance Sheet, Cash Flow (+ company health).
+UX reference: the screenshots in `docs/reference/crossval/` (CrossVal). Replicate their layout, interactions and workflow
+closely, but use Arnifi branding, our own copy/wording, and fix the accounting errors called out in each phase prompt.
+Never use CrossVal's name, logo, colours or exact text in the product.
+
+# Codebase
+
+- Build inside the EXISTING repo (Next.js + Postgres + Python worker + MinIO, Docker Compose). Reuse its infra
+  (Compose, DB, storage, worker, session/auth plumbing, numbered SQL migration convention, CI workflow).
+- The earlier domain modules (ledger/recon/close/statements/ct/pipeline) are NOT the base for this build. New domain code lives in
+  new modules (e.g. `src/server/books/*`, `src/app/(books)/*`, new numbered SQL files). Reuse old code only where it is clearly
+  correct and you say so in the plan; never let old and new write the same tables. Old pages can stay, but are hidden from
+  the new nav.
+- Keep the security gate: PORTAL_SECURITY_STATUS stays FAIL → only synthetic companies in the app. Never commit real client
+  documents, names, TRNs or IBANs. Real-folder testing only via a local, gitignored lab script.
+
+# Non-negotiable accounting rules
+
+1. The journal is the ONLY source of truth. Every screen either creates journal entries or reads posted journal lines.
+   No other table changes balances.
+2. Money = integer minor units (fils, scale 2) end to end (DB, API, UI formatting at the edge). No floats anywhere.
+   Foreign currency lines store: original amount + currency + rate + AED amount.
+3. Every entry balances (sum Dr = sum Cr), enforced by a DB constraint/trigger, not just app code.
+4. Posted entries are immutable. Corrections = reversal entry (linked) + new entry. Description/note/tags may be edited (audited).
+5. Locked periods reject posting, reversal and reclass into them. Periods are MONTHLY (generated from fiscal-year start);
+   quarter/year are reporting ranges only; locking is per month.
+6. Every create/update/post/reverse/match/approve writes an audit event (actor, timestamp UTC, before/after, source).
+7. Projections/forecasts are a separate layer: they never feed TB, Balance Sheet, tax or exports of actuals.
+8. VAT: 5% standard / zero-rated / exempt / out-of-scope / reverse charge. Input VAT is only recoverable with a valid tax invoice
+   (supplier TRN present). Government fee / disbursement lines are pass-through: no revenue, no VAT.
+9. Dual control: preparer ≠ approver for post / reverse / lock. Roles include admin, accountant (preparer), approver, viewer.
+   Soft-delete drafts only; never hard-delete posted journals, documents, or audit events.
+
+# Standards
+
+- Accounting framework: IFRS (IFRS for SMEs eligible). Accrual basis. Double entry. UAE VAT (FTA) and Corporate Tax rules.
+- Voucher types (orthogonal to entry source auto/manual): Sales, Purchase, Receipt, Payment, Contra, Journal,
+  Credit Note, Debit Note, Opening, Closing — each with its own configurable number series
+  (e.g. RV-2026-0001, PV-…, JV-…), shown in the Ledger as a column + filter.
+- Financial statement presentation: IFRS default (Statement of Financial Position, Statement of Profit or Loss and OCI,
+  Statement of Changes in Equity, Statement of Cash Flows, Notes incl. accounting policies). Keep the Frontier
+  (Schedule-III style) layout as an optional "Classic" template in the Addendum B FS pack.
+- Records retention: no hard deletes of posted data, documents or audit events; retention ≥ 7 years (CT) / 5 years
+  (VAT) — configurable; soft-delete only for drafts.
+- Standard reports (match Zoho/Tally names): Day Book, General Ledger, Account Transactions, Trial Balance,
+  P&L, Balance Sheet, Cash Flow, AR/AP Ageing, VAT Summary/Return, Journal Report, Audit Trail.
+  P&L / BS / CF UI tabs stay disabled until Phase 6 ("Available in Phase 6").
+
+# Tech conventions
+
+- TypeScript strict. Postgres. New schema = new numbered SQL file, also applied in test setup and e2e setup.
+- Background jobs in the worker/queue (parsing, OCR, scheduled entries, recurring entries).
+- OCR = local Tesseract (eng+ara) only, behind an `Extractor` interface so a provider can be swapped later.
+  No external OCR/LLM API calls.
+- UI: one shared design system. Brand tokens in a single theme file (Arnifi brand colours — ask for exact hex values if not
+  in the repo; use placeholders meanwhile). Light mode first; tokens must make dark mode possible later.
+- Tables: one shared `DataGrid` (TanStack Table + virtualisation) and one shared `SideDrawer` used by every list screen.
+- Every phase ships: SQL + server logic + UI + unit tests + one end-to-end test + updated golden test.
+
+# Golden test (grows each phase)
+
+Synthetic companies with hand-computed expected outputs in `fixtures/books-goldens/` (JSON/XLSX, computed independently
+in a spreadsheet, NOT generated from our code). The full pipeline must reproduce them exactly.
+- Company A "Desert Falcon Services FZE" (services, disbursements, Stripe, AED+USD bank, credit card)
+- Company B "Gulf Crest Trading LLC" (inventory, VAT both sides, partial payments)
+- Company C "Palm Grove Properties LLC" (rental income, foreign customer, quarterly VAT)
+
+# Working style
+
+- Start every phase with a plan: tables/columns, server modules, API routes, screens, tests, open questions. Wait for "go".
+- Thin slices, feat/* branches, tests green before showing screens. Commit/PR only when the user says "ship".
+- Ask before making accounting-policy decisions not covered here.
+- Windows host: PowerShell-friendly commands; prefer running tests inside Docker.

@@ -1,0 +1,14 @@
+{
+  "id": "books-c-palm-grove-opening",
+  "client": "Palm Grove Properties LLC",
+  "clientId": "e1000001-0000-4000-8000-000000000003",
+  "periodLabel": "2026-Q2",
+  "asOf": "2026-04-01",
+  "currency": "AED",
+  "lines": [
+    { "accountCode": "1120", "debitMinor": 500000, "creditMinor": 0, "memo": "Opening bank AED" },
+    { "accountCode": "1610", "debitMinor": 1200000, "creditMinor": 0, "memo": "Furniture / FA at cost" },
+    { "accountCode": "3100", "debitMinor": 0, "creditMinor": 1700000, "memo": "Balancing equity" }
+  ],
+  "notes": "Opening-balance INPUT (COA v2). Expected TB filled by owner."
+}

@@ -1,0 +1,11 @@
+{
+  "id": "g-pipeline-a-sandstorm-2026-01",
+  "source": "lab",
+  "boxes": {
+    "1b": { "taxableMinor": 0, "vatMinor": 5000 }
+  },
+  "totalOutputVat": 5000,
+  "totalInputVat": 0,
+  "netPayable": 5000,
+  "notes": "Journal-line VAT fallback leaves taxableMinor at 0; fee invoice VAT 5000. Disbursement has no VAT."
+}

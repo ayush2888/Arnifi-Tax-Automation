@@ -82,7 +82,18 @@ See [docs/architecture/06-portal-security-review.md](docs/architecture/06-portal
 
 See [fixtures/v1-goldens/README.md](fixtures/v1-goldens/README.md). Lab goldens run in `npm test`. Drop owner-supplied filed returns under `fixtures/v1-goldens/filed/` (on-machine only) and compare with `npx tsx scripts/v1-backtest.ts`.
 
-Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04`–`12` SQL files.
+### Stage G — Books pipeline
+
+Client-agnostic ingest → propose → post → recon → close → statements:
+
+- Config: `/clients/[id]/settings` (profile, source accounts, posting rules, FX)
+- Firm dashboard: `/dashboard`
+- Period workspace: `/clients/[id]/period/[pid]`
+- Unassigned firm inbox: `/inbox/unassigned`
+- SQL: `db/13-pipeline.sql` … `15-pipeline-demo.sql`
+- Local folder lab (gitignored output): `npm run lab:folder -- --input <dir> --period YYYY-MM`
+
+Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04`–`15` SQL files.
 
 ## Money, tenants, and files
 

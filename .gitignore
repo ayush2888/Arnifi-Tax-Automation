@@ -41,6 +41,7 @@ yarn-error.log*
 fixtures/generated
 fixtures/v1-goldens/filed/*
 !fixtures/v1-goldens/filed/.gitkeep
+lab-output/
 __pycache__/
 .pytest_cache/
 *.pyc
