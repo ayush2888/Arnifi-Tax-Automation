@@ -39,6 +39,8 @@ yarn-error.log*
 
 .venv
 fixtures/generated
+fixtures/v1-goldens/filed/*
+!fixtures/v1-goldens/filed/.gitkeep
 __pycache__/
 .pytest_cache/
 *.pyc

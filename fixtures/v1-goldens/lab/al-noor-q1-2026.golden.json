@@ -1,0 +1,16 @@
+{
+  "id": "lab-al-noor-q1-2026",
+  "source": "lab",
+  "clientId": "22222222-2222-4222-8222-222222222222",
+  "periodId": "a0000001-0000-4000-8000-000000000001",
+  "periodLabel": "Q1 2026",
+  "toleranceMinor": 0,
+  "boxes": {
+    "1b": { "taxableMinor": 100000, "vatMinor": 5000 },
+    "9": { "taxableMinor": 20000, "vatMinor": 1000 }
+  },
+  "totalOutputVat": 5000,
+  "totalInputVat": 1000,
+  "netPayable": 4000,
+  "notes": "Synthetic lab golden for V1 harness CI. Not a filed FTA return. Matches createSyntheticDocument sales+purchase facts used in vat201-compare.test.ts."
+}

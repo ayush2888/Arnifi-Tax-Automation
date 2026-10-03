@@ -85,4 +85,5 @@ jobs:
         with:
           name: source-highlight
           path: e2e/artifacts/source-highlight.png
-          if-no-files-found: error
+          # Produced only when the grid-scroll e2e passes; do not mask the real test failure.
+          if-no-files-found: warn
