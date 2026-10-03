@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 
 import { PRODUCT_NAME } from "@/config/product";
+import { SecurityBanner } from "@/components/security-banner";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
@@ -122,6 +123,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <span className="font-heading text-lg">{PRODUCT_NAME}</span>
           </header>
           <main key={`${directory?.me?.id || ""}:${directory?.clientId || ""}`} className="min-w-0 flex-1 px-4 py-5 md:px-8">
+            <SecurityBanner />
             {children}
           </main>
         </div>

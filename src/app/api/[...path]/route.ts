@@ -98,14 +98,33 @@ import {
 } from "@/server/ct";
 import { forwardUnlock } from "@/server/unlock-proxy";
 import { patchTransaction } from "@/server/data";
+import {
+  assertDownloadMfa,
+  assertSessionTenantAllowed,
+  issueMfaCookieValue,
+  MFA_COOKIE,
+  securityStatusPayload,
+  verifyMfaCode,
+} from "@/server/security-gate";
+import { allowRealClientData } from "@/config/security";
+import { withUser } from "@/lib/db";
 import { createHash } from "node:crypto";
+import { cookies } from "next/headers";
 
 type Ctx = { params: Promise<{ path: string[] }> };
 
 async function context() {
   const session = await requireSession();
   const who = await actor(session.userId, session.clientId);
+  if (who) {
+    await assertSessionTenantAllowed(session.userId, session.clientId);
+  }
   return { session, who };
+}
+
+async function mfaTokenFromRequest() {
+  const jar = await cookies();
+  return jar.get(MFA_COOKIE)?.value;
 }
 
 function fail(error: unknown) {
@@ -159,7 +178,15 @@ export async function GET(request: Request, contextParams: Ctx) {
     const { session, who } = await context();
     if (path[0] === "session") {
       const book = await directory(session.userId);
-      return NextResponse.json({ ...book, clientId: session.clientId, signedIn: Boolean(who) });
+      return NextResponse.json({
+        ...book,
+        clientId: session.clientId,
+        signedIn: Boolean(who),
+        security: securityStatusPayload(),
+      });
+    }
+    if (path[0] === "security-status") {
+      return NextResponse.json(securityStatusPayload());
     }
     if (!who) return NextResponse.json({ error: "forbidden" }, { status: 403 });
     if (path[0] === "dashboard") return NextResponse.json(await dashboard(session.userId, session.clientId));
@@ -326,10 +353,42 @@ export async function POST(request: Request, contextParams: Ctx) {
         allowed = clientId ? await actor(userId, clientId) : null;
       }
       if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-      const response = NextResponse.json({ ok: true });
+      await assertSessionTenantAllowed(userId, clientId);
+      const response = NextResponse.json({ ok: true, security: securityStatusPayload() });
       response.cookies.set("daftar_user", userId, SESSION_COOKIE);
       response.cookies.set("daftar_client", clientId, SESSION_COOKIE);
       return response;
+    }
+    if (path[0] === "mfa" && path[1] === "verify") {
+      if (!who) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      const body = await request.json();
+      if (!verifyMfaCode(String(body.code || ""))) {
+        return NextResponse.json({ error: "mfa_invalid", message: "mfa_invalid" }, { status: 403 });
+      }
+      const issued = issueMfaCookieValue(session.userId);
+      const response = NextResponse.json({ ok: true, expiresAt: issued.expiresAtMs });
+      response.cookies.set(MFA_COOKIE, issued.value, {
+        ...SESSION_COOKIE,
+        maxAge: issued.maxAge,
+      });
+      return response;
+    }
+    if (path[0] === "clients" && path[1] && path[2] === "mark-real") {
+      if (!who || who.role !== "admin") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      if (!allowRealClientData()) {
+        return NextResponse.json(
+          { error: "forbidden", message: "real_client_data_blocked" },
+          { status: 403 },
+        );
+      }
+      await withUser(session.userId, async (db) => {
+        const updated = await db.query(
+          `UPDATE clients SET is_synthetic = false WHERE id = $1 RETURNING id`,
+          [path[1]],
+        );
+        if (!updated.rowCount) throw new LedgerError("client_not_found", "not_found");
+      });
+      return NextResponse.json({ id: path[1], isSynthetic: false });
     }
     if (!who) return NextResponse.json({ error: "forbidden" }, { status: 403 });
     if (path[0] === "uploads") {
@@ -441,6 +500,7 @@ export async function POST(request: Request, contextParams: Ctx) {
       return NextResponse.json(await approveVat201Pack(session.userId, session.clientId, path[1]));
     }
     if (path[0] === "release-packs" && path[1] && path[2] === "download") {
+      assertDownloadMfa(session.userId, await mfaTokenFromRequest());
       const forwarded = request.headers.get("x-forwarded-for") || "";
       const ip = forwarded.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
       const ipHash = ip ? createHash("sha256").update(ip).digest("hex").slice(0, 16) : null;
@@ -588,6 +648,7 @@ export async function POST(request: Request, contextParams: Ctx) {
       return NextResponse.json(await approveCtPack(session.userId, session.clientId, path[1]));
     }
     if (path[0] === "release-packs" && path[1] && path[2] === "download-ct") {
+      assertDownloadMfa(session.userId, await mfaTokenFromRequest());
       const forwarded = request.headers.get("x-forwarded-for") || "";
       const ip = forwarded.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
       const ipHash = ip ? createHash("sha256").update(ip).digest("hex").slice(0, 16) : null;
