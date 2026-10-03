@@ -56,6 +56,7 @@ def migrated_database():
             "08-close.sql",
             "09-close-seed.sql",
             "10-statements.sql",
+            "11-ct.sql",
         ):
             _psql(database, "-f", str(ROOT / "db" / name))
     from daftar.bootstrap import bootstrap
