@@ -1,0 +1,36 @@
+{
+  "policy": {
+    "allow_cloud": false,
+    "dataset": "fixtures/ocr-bench",
+    "note": "synthetic/approved only; no Downloads auto-scan"
+  },
+  "results": [
+    {
+      "engine": "dry-run",
+      "document_id": "synthetic-demo",
+      "latency_ms": 0.001336999048362486,
+      "cost_usd_estimate": 0.0,
+      "fields": [
+        {
+          "field": "invoice_number",
+          "expected": "INV-001",
+          "actual": "INV-001",
+          "exact": true
+        },
+        {
+          "field": "total",
+          "expected": "105.00",
+          "actual": "105.00",
+          "exact": true
+        },
+        {
+          "field": "currency",
+          "expected": "AED",
+          "actual": "AED",
+          "exact": true
+        }
+      ],
+      "error": null
+    }
+  ]
+}

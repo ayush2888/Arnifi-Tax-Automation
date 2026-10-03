@@ -58,6 +58,16 @@ def migrated_database():
             "10-statements.sql",
             "11-ct.sql",
             "12-security.sql",
+            "13-pipeline.sql",
+            "14-pipeline-seed.sql",
+            "15-pipeline-demo.sql",
+            "16-books.sql",
+            "17-books-seed.sql",
+            "18-books-phase0.sql",
+            "19-books-demo-journals.sql",
+            "20-books-coa-v2.sql",
+            "21-books-phase0-fixes.sql",
+            "22-books-alignment.sql",
         ):
             _psql(database, "-f", str(ROOT / "db" / name))
     from daftar.bootstrap import bootstrap

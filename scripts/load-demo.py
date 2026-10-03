@@ -51,6 +51,9 @@ def main() -> None:
             "10-statements.sql",
             "11-ct.sql",
             "12-security.sql",
+            "13-pipeline.sql",
+            "14-pipeline-seed.sql",
+            "15-pipeline-demo.sql",
         ):
             subprocess.check_call(
                 ["psql", "-h", "127.0.0.1", "-U", "daftar", "-d", "daftar", "-v", "ON_ERROR_STOP=1", "-f", str(ROOT / "db" / name)],

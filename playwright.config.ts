@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
-const PORT = 43127;
+const PORT = Number(process.env.PORT || 43127);
 
 export default defineConfig({
   testDir: "./e2e",
@@ -16,15 +16,21 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: `npx next dev --turbopack -H 127.0.0.1 -p ${PORT}`,
-    // `/` redirects until a session cookie exists, and the probe follows that forever.
+    // Docker e2e builds standalone first and sets E2E_WEB_COMMAND=node .next/standalone/server.js
+    command: process.env.E2E_WEB_COMMAND || `node .next/standalone/server.js`,
+    // `/` redirects until a session cookie exists; probe a static asset instead.
     url: `http://127.0.0.1:${PORT}/icon.svg`,
-    timeout: 180_000,
+    timeout: 300_000,
     reuseExistingServer: false,
     env: {
       ...process.env,
-      DATABASE_URL: "postgresql://daftar_app:daftar-local-only@127.0.0.1:5432/daftar_e2e",
+      DATABASE_URL:
+        process.env.DATABASE_URL ||
+        "postgresql://daftar_app:daftar-local-only@127.0.0.1:5432/daftar_e2e",
       HOSTNAME: "127.0.0.1",
+      PORT: String(PORT),
+      PORTAL_SECURITY_STATUS: process.env.PORTAL_SECURITY_STATUS || "FAIL",
+      NODE_ENV: "production",
     },
   },
 });

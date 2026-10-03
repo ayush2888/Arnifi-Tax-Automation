@@ -4,7 +4,11 @@ import pg from "pg";
 
 import { unsupportedCurrency, unsupportedCurrencyMessage } from "./currency";
 
-process.env.DATABASE_URL = "postgresql://daftar_app:daftar-local-only@127.0.0.1:5432/daftar_test";
+const appUrl =
+  process.env.DATABASE_URL || "postgresql://daftar_app:daftar-local-only@127.0.0.1:5432/daftar_test";
+process.env.DATABASE_URL = appUrl;
+const adminUrl =
+  process.env.DATABASE_URL_SUPER || appUrl.replace("://daftar_app:", "://daftar:");
 
 const OMAR = "55555555-5555-4555-8555-555555555555";
 const AL_NOOR = "22222222-2222-4222-8222-222222222222";
@@ -12,7 +16,7 @@ const NORTHWIND = "77777777-7777-4777-8777-777777777777";
 
 test("upload refuses a 3-decimal currency before the file is stored", async () => {
   const { registerUpload } = await import("../server/data");
-  const admin = new pg.Client({ connectionString: "postgresql://daftar:daftar-local-only@127.0.0.1:5432/daftar_test" });
+  const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
   const csv = Buffer.from(
     "Bank,Northwind Commercial Bank\nCurrency,KWD\nDate,Description,Debit,Credit,Balance,Reference\n2024-01-02,Test,1.230,,1.230,K-1\n",

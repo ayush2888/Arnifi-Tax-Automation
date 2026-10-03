@@ -1,5 +1,7 @@
 node_modules
+**/node_modules
 .next
+**/.next
 .venv
 fixtures/generated
 __pycache__
@@ -8,3 +10,7 @@ __pycache__
 *.pyc
 .env
 .env.local
+playwright-report
+e2e/artifacts
+lab-output
+.verify-*.log

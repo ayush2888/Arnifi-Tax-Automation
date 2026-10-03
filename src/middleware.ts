@@ -1,17 +1,30 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { DEMO_CLIENT_ID, DEMO_USER_ID } from "@/config/product";
+const PUBLIC = new Set(["/login"]);
 
 export function middleware(request: NextRequest) {
-  if (request.nextUrl.pathname.startsWith("/api")) return NextResponse.next();
-  if (request.cookies.get("daftar_user") && request.cookies.get("daftar_client")) {
+  const path = request.nextUrl.pathname;
+  if (path.startsWith("/api") || path.startsWith("/_next") || path === "/favicon.ico" || path === "/icon.svg") {
     return NextResponse.next();
   }
-  const response = NextResponse.redirect(request.nextUrl);
-  response.cookies.set("daftar_user", DEMO_USER_ID, { httpOnly: true, sameSite: "lax", path: "/" });
-  response.cookies.set("daftar_client", DEMO_CLIENT_ID, { httpOnly: true, sameSite: "lax", path: "/" });
-  return response;
+  const hasSession =
+    Boolean(request.cookies.get("daftar_user")?.value) &&
+    Boolean(request.cookies.get("daftar_client")?.value);
+
+  if (PUBLIC.has(path)) {
+    if (hasSession && path === "/login") {
+      return NextResponse.redirect(new URL("/books", request.url));
+    }
+    return NextResponse.next();
+  }
+
+  if (!hasSession) {
+    const login = new URL("/login", request.url);
+    login.searchParams.set("next", path);
+    return NextResponse.redirect(login);
+  }
+  return NextResponse.next();
 }
 
 export const config = {

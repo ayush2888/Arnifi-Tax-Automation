@@ -1,0 +1,77 @@
+"""Pluggable document parsers for Stage G ingestion.
+
+OCR policy: text-layer PDFs are preferred. Scanned PDFs may use local Tesseract
+(eng+ara) only; every OCR field must be marked low-confidence. Do not add
+vision-LLM / cloud OCR without an explicit owner decision.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Protocol
+
+
+@dataclass
+class ParsedLine:
+    description: str
+    amount_minor: int
+    currency: str = "AED"
+    txn_date: str | None = None
+    reference: str | None = None
+    debit: bool = True
+    confidence: int = 100
+    meta: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ParsedDocument:
+    doc_type: str
+    party: str | None
+    document_date: str | None
+    period_hint: str | None
+    currency: str
+    lines: list[ParsedLine]
+    confidence: int
+    ocr_used: bool = False
+    source_account_hints: list[str] = field(default_factory=list)
+    extras: dict[str, Any] = field(default_factory=dict)
+
+
+class DocumentParser(Protocol):
+    name: str
+
+    def can_parse(self, filename: str, mime: str, sample: bytes) -> int:
+        """Return 0–100 confidence that this parser should handle the file."""
+
+    def parse(self, filename: str, mime: str, content: bytes) -> ParsedDocument:
+        ...
+
+
+def register_builtin_parsers() -> list[DocumentParser]:
+    from daftar.parsers.invoice_generic import InvoiceGenericParser
+    from daftar.parsers.bank_uae_a import BankUaeAParser
+    from daftar.parsers.bank_uae_b import BankUaeBParser
+    from daftar.parsers.card_generic import CardGenericParser
+    from daftar.parsers.stripe_balance_history import StripeBalanceHistoryParser
+    from daftar.parsers.gateway_pdf_generic import GatewayPdfGenericParser
+
+    return [
+        StripeBalanceHistoryParser(),
+        BankUaeAParser(),
+        BankUaeBParser(),
+        CardGenericParser(),
+        GatewayPdfGenericParser(),
+        InvoiceGenericParser(),
+    ]
+
+
+def pick_parser(filename: str, mime: str, content: bytes, parsers: list[DocumentParser] | None = None):
+    parsers = parsers or register_builtin_parsers()
+    ranked = sorted(
+        ((p.can_parse(filename, mime, content[:8192]), p) for p in parsers),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    if not ranked or ranked[0][0] <= 0:
+        return None, 0
+    return ranked[0][1], ranked[0][0]

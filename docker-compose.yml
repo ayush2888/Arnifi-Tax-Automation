@@ -6,6 +6,8 @@ services:
       POSTGRES_PASSWORD: daftar-local-only
       POSTGRES_DB: daftar
     ports:
+      # 5432 matches CI/Playwright/npm test defaults; 54329 kept for local habit.
+      - "5432:5432"
       - "54329:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -17,8 +19,8 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
-    command: server /data --console-address ":9001"
+    # Local mirror of MinIO (Docker Hub minio/minio pulls can fail); CI uses moto instead.
+    image: bitnamilegacy/minio:2025.4.22
     environment:
       MINIO_ROOT_USER: daftar
       MINIO_ROOT_PASSWORD: daftar-local-only
@@ -81,6 +83,38 @@ services:
       postgres:
         condition: service_healthy
 
+  # Linux Playwright e2e: source bind-mount + shadowed node_modules/.next (never host win32 binaries).
+  e2e:
+    profiles: ["e2e"]
+    image: mcr.microsoft.com/playwright:v1.63.0-jammy
+    working_dir: /work
+    environment:
+      E2E_IN_CONTAINER: "1"
+      PGHOST: postgres
+      PGPASSWORD: daftar-local-only
+      DATABASE_URL: postgresql://daftar_app:daftar-local-only@postgres:5432/daftar_e2e
+      DATABASE_URL_SUPER: postgresql://daftar:daftar-local-only@postgres:5432/daftar_e2e
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: daftar
+      S3_SECRET_KEY: daftar-local-only
+      S3_BUCKET: statements
+      IBAN_ENCRYPTION_KEY: dev-only-iban-key-change-me
+      PORTAL_SECURITY_STATUS: FAIL
+      PORT: "43127"
+      HOSTNAME: "127.0.0.1"
+    volumes:
+      - .:/work
+      - e2e_node_modules:/work/node_modules
+      - e2e_next:/work/.next
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    entrypoint: ["node", "scripts/e2e-docker-inner.mjs"]
+
 volumes:
   pgdata:
   minio:
+  e2e_node_modules:
+  e2e_next:

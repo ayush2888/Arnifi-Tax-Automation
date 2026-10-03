@@ -1,0 +1,11 @@
+{
+  "balanced": true,
+  "accounts": {
+    "1100": { "debitMinor": 105000, "creditMinor": 0 },
+    "1300": { "debitMinor": 0, "creditMinor": 20000 },
+    "2100": { "debitMinor": 0, "creditMinor": 5000 },
+    "4000": { "debitMinor": 0, "creditMinor": 100000 },
+    "1100_ar_from_disb": { "debitMinor": 20000, "creditMinor": 0 }
+  },
+  "notes": "Hand-computed for Sandstorm Jan: fee 100000+VAT5000 and disbursement 20000 via clearing."
+}
