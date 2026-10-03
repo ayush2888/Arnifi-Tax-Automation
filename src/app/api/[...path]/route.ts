@@ -65,6 +65,22 @@ import {
   proposeMatch,
   resolveException,
 } from "@/server/recon";
+import {
+  closeChecklist,
+  closePeriod,
+  createAccrual,
+  listAccruals,
+  listCloseEvents,
+  listDepreciation,
+  listFixedAssets,
+  postAccrual,
+  postDepreciation,
+  registerFixedAsset,
+  reopenPeriod,
+  waiveAccrual,
+  waiveReconForClose,
+  waiveVatForClose,
+} from "@/server/close";
 import { forwardUnlock } from "@/server/unlock-proxy";
 import { patchTransaction } from "@/server/data";
 import { createHash } from "node:crypto";
@@ -83,7 +99,13 @@ function fail(error: unknown) {
   }
   if (error instanceof LedgerError) {
     const status =
-      error.code === "not_found" ? 404 : error.code === "forbidden" ? 403 : error.code === "conflict" ? 409 : 400;
+      error.code === "not_found"
+        ? 404
+        : error.code === "forbidden"
+          ? 403
+          : error.code === "conflict" || error.code === "period_closed"
+            ? 409
+            : 400;
     return NextResponse.json({ error: error.code, message: error.message }, { status });
   }
   const code = error instanceof Error ? error.name : "error";
@@ -237,6 +259,25 @@ export async function GET(request: Request, contextParams: Ctx) {
       return NextResponse.json(
         await listExceptions(session.userId, session.clientId, url.searchParams.get("status") || "OPEN"),
       );
+    }
+    if (path[0] === "accruals") {
+      return NextResponse.json(
+        await listAccruals(session.userId, session.clientId, url.searchParams.get("periodId") || undefined),
+      );
+    }
+    if (path[0] === "fixed-assets") {
+      return NextResponse.json(await listFixedAssets(session.userId, session.clientId));
+    }
+    if (path[0] === "depreciation") {
+      return NextResponse.json(
+        await listDepreciation(session.userId, session.clientId, url.searchParams.get("periodId") || undefined),
+      );
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "close-checklist") {
+      return NextResponse.json(await closeChecklist(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "close-events") {
+      return NextResponse.json(await listCloseEvents(session.userId, session.clientId, path[1]));
     }
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   } catch (error) {
@@ -419,6 +460,76 @@ export async function POST(request: Request, contextParams: Ctx) {
     }
     if (path[0] === "recon-exceptions" && path[1] && path[2] === "resolve") {
       return NextResponse.json(await resolveException(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "accruals" && !path[1]) {
+      const body = await request.json();
+      return NextResponse.json(
+        await createAccrual(session.userId, session.clientId, {
+          periodId: String(body.periodId || ""),
+          kind: body.kind === "PREPAYMENT" ? "PREPAYMENT" : "ACCRUAL",
+          memo: String(body.memo || ""),
+          debitAccountId: String(body.debitAccountId || ""),
+          creditAccountId: String(body.creditAccountId || ""),
+          amountMinor: Number(body.amountMinor || 0),
+          autoReverse: body.autoReverse !== false,
+        }),
+      );
+    }
+    if (path[0] === "accruals" && path[1] && path[2] === "post") {
+      return NextResponse.json(await postAccrual(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "accruals" && path[1] && path[2] === "waive") {
+      const body = await request.json().catch(() => ({}));
+      return NextResponse.json(
+        await waiveAccrual(session.userId, session.clientId, path[1], String(body.reason || "")),
+      );
+    }
+    if (path[0] === "fixed-assets" && !path[1]) {
+      const body = await request.json();
+      return NextResponse.json(
+        await registerFixedAsset(session.userId, session.clientId, {
+          code: String(body.code || ""),
+          name: String(body.name || ""),
+          costMinor: Number(body.costMinor || 0),
+          residualMinor: Number(body.residualMinor || 0),
+          lifeMonths: Number(body.lifeMonths || 0),
+          inServiceOn: String(body.inServiceOn || ""),
+          assetAccountId: String(body.assetAccountId || ""),
+          accumDeprAccountId: String(body.accumDeprAccountId || ""),
+          deprExpenseAccountId: String(body.deprExpenseAccountId || ""),
+          periodId: String(body.periodId || ""),
+        }),
+      );
+    }
+    if (path[0] === "depreciation" && path[1] && path[2] === "post") {
+      return NextResponse.json(await postDepreciation(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "close") {
+      const body = await request.json().catch(() => ({}));
+      return NextResponse.json(
+        await closePeriod(session.userId, session.clientId, path[1], String(body.reason || "")),
+      );
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "reopen") {
+      const body = await request.json();
+      return NextResponse.json(
+        await reopenPeriod(session.userId, session.clientId, path[1], {
+          reason: String(body.reason || ""),
+          ticketRef: body.ticketRef ? String(body.ticketRef) : "",
+        }),
+      );
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "waive-vat") {
+      const body = await request.json().catch(() => ({}));
+      return NextResponse.json(
+        await waiveVatForClose(session.userId, session.clientId, path[1], String(body.reason || "")),
+      );
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "waive-recon") {
+      const body = await request.json().catch(() => ({}));
+      return NextResponse.json(
+        await waiveReconForClose(session.userId, session.clientId, path[1], String(body.reason || "")),
+      );
     }
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   } catch (error) {
