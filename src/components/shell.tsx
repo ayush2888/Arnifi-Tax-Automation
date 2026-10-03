@@ -4,7 +4,18 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
-import { BookOpenText, Moon, PanelLeft, Scale, ScrollText, Sun, Table2 } from "lucide-react";
+import {
+  BookOpenText,
+  Inbox,
+  Landmark,
+  Moon,
+  PanelLeft,
+  Receipt,
+  Scale,
+  ScrollText,
+  Sun,
+  Table2,
+} from "lucide-react";
 
 import { PRODUCT_NAME } from "@/config/product";
 import { Button } from "@/components/ui/button";
@@ -18,7 +29,10 @@ type Directory = {
 };
 
 const NAV = [
-  { href: "/", label: "Dashboard", icon: Scale },
+  { href: "/", label: "Clients", icon: Scale },
+  { href: "/journals", label: "Journals", icon: Landmark },
+  { href: "/inbox", label: "Inbox", icon: Inbox },
+  { href: "/vat201", label: "VAT draft", icon: Receipt },
   { href: "/statements", label: "Statements", icon: ScrollText },
   { href: "/transactions", label: "Transactions", icon: Table2 },
   { href: "/rules", label: "Rules", icon: BookOpenText },
@@ -54,7 +68,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const nav = (
     <nav className="flex flex-col gap-1">
       {NAV.map((item) => {
-        const active = pathname === item.href;
+        const active = item.href === "/" ? pathname === "/" : pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
         return (
           <Link
@@ -77,7 +91,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <aside className={`hidden shrink-0 border-r border-border bg-sidebar md:flex md:flex-col ${collapsed ? "w-16" : "w-60"}`}>
           <div className="flex items-center justify-between px-3 py-4">
             <Link href="/" className="font-heading text-xl tracking-tight">
-              {collapsed ? "D" : PRODUCT_NAME}
+              {collapsed ? "a" : PRODUCT_NAME}
             </Link>
             <Button variant="ghost" size="icon-sm" onClick={() => setCollapsed((value) => !value)} aria-label="Collapse navigation">
               <PanelLeft />

@@ -29,6 +29,22 @@ import {
   transactionMeta,
   type TxnQuery,
 } from "@/server/data";
+import {
+  approveExtractionAndPost,
+  createJournal,
+  createPeriod,
+  createSyntheticDocument,
+  getExtraction,
+  getJournal,
+  LedgerError,
+  listAccounts,
+  listDocuments,
+  listJournals,
+  listPeriods,
+  postJournal,
+  trialBalance,
+  vat201Draft,
+} from "@/server/ledger";
 import { forwardUnlock } from "@/server/unlock-proxy";
 import { patchTransaction } from "@/server/data";
 
@@ -43,6 +59,11 @@ async function context() {
 function fail(error: unknown) {
   if (error instanceof MoneyTypeError) {
     return NextResponse.json({ error: "invalid_money" }, { status: 400 });
+  }
+  if (error instanceof LedgerError) {
+    const status =
+      error.code === "not_found" ? 404 : error.code === "forbidden" ? 403 : error.code === "conflict" ? 409 : 400;
+    return NextResponse.json({ error: error.code, message: error.message }, { status });
   }
   const code = error instanceof Error ? error.name : "error";
   console.error("api", code);
@@ -129,6 +150,32 @@ export async function GET(request: Request, contextParams: Ctx) {
     if (path[0] === "categories") return NextResponse.json(await categories(session.userId));
     if (path[0] === "rules") return NextResponse.json(await rules(session.userId, session.clientId));
     if (path[0] === "views") return NextResponse.json(await listViews(session.userId, session.clientId));
+    if (path[0] === "periods" && !path[1]) return NextResponse.json(await listPeriods(session.userId, session.clientId));
+    if (path[0] === "accounts") return NextResponse.json(await listAccounts(session.userId, session.clientId));
+    if (path[0] === "journals" && path[1]) {
+      const journal = await getJournal(session.userId, session.clientId, path[1]);
+      if (!journal) return NextResponse.json({ error: "not_found" }, { status: 404 });
+      return NextResponse.json(journal);
+    }
+    if (path[0] === "journals") {
+      return NextResponse.json(await listJournals(session.userId, session.clientId, url.searchParams.get("periodId") || undefined));
+    }
+    if (path[0] === "trial-balance") {
+      const periodId = url.searchParams.get("periodId");
+      if (!periodId) return NextResponse.json({ error: "periodId_required" }, { status: 400 });
+      return NextResponse.json(await trialBalance(session.userId, session.clientId, periodId));
+    }
+    if (path[0] === "documents") {
+      return NextResponse.json(await listDocuments(session.userId, session.clientId, url.searchParams.get("periodId") || undefined));
+    }
+    if (path[0] === "extractions" && path[1]) {
+      const extraction = await getExtraction(session.userId, session.clientId, path[1]);
+      if (!extraction) return NextResponse.json({ error: "not_found" }, { status: 404 });
+      return NextResponse.json(extraction);
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "vat201-draft") {
+      return NextResponse.json(await vat201Draft(session.userId, session.clientId, path[1]));
+    }
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   } catch (error) {
     return fail(error);
@@ -215,6 +262,48 @@ export async function POST(request: Request, contextParams: Ctx) {
     if (path[0] === "views") {
       const body = await request.json();
       return NextResponse.json(await saveView(session.userId, session.clientId, String(body.name || "View"), body.config));
+    }
+    if (path[0] === "periods" && !path[1]) {
+      const body = await request.json();
+      return NextResponse.json(
+        await createPeriod(session.userId, session.clientId, {
+          label: String(body.label || ""),
+          periodStart: String(body.periodStart || ""),
+          periodEnd: String(body.periodEnd || ""),
+        }),
+      );
+    }
+    if (path[0] === "journals" && path[1] && path[2] === "post") {
+      return NextResponse.json(await postJournal(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "journals" && !path[1]) {
+      const body = await request.json();
+      return NextResponse.json(
+        await createJournal(session.userId, session.clientId, {
+          periodId: String(body.periodId || ""),
+          memo: body.memo ? String(body.memo) : "",
+          entryDate: String(body.entryDate || ""),
+          lines: Array.isArray(body.lines) ? body.lines : [],
+          sourceFileId: body.sourceFileId || null,
+          sourceDocumentId: body.sourceDocumentId || null,
+          sourceExtractionId: body.sourceExtractionId || null,
+          post: Boolean(body.post),
+        }),
+      );
+    }
+    if (path[0] === "documents" && path[1] === "synthetic") {
+      const body = await request.json();
+      return NextResponse.json(
+        await createSyntheticDocument(session.userId, session.clientId, {
+          periodId: String(body.periodId || ""),
+          docType: body.docType,
+          originalName: String(body.originalName || "synthetic.json"),
+          facts: body.facts && typeof body.facts === "object" ? body.facts : {},
+        }),
+      );
+    }
+    if (path[0] === "extractions" && path[1] && path[2] === "approve-post") {
+      return NextResponse.json(await approveExtractionAndPost(session.userId, session.clientId, path[1]));
     }
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   } catch (error) {
