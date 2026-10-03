@@ -7,6 +7,7 @@ import { useTheme } from "next-themes";
 import {
   BookOpenText,
   ArrowLeftRight,
+  FileSpreadsheet,
   Inbox,
   Landmark,
   Lock,
@@ -37,7 +38,8 @@ const NAV = [
   { href: "/vat201", label: "VAT201", icon: Receipt },
   { href: "/reconcile", label: "Reconcile", icon: ArrowLeftRight },
   { href: "/close", label: "Close", icon: Lock },
-  { href: "/statements", label: "Statements", icon: ScrollText },
+  { href: "/reports", label: "Reports", icon: FileSpreadsheet },
+  { href: "/statements", label: "Bank stmts", icon: ScrollText },
   { href: "/transactions", label: "Transactions", icon: Table2 },
   { href: "/rules", label: "Rules", icon: BookOpenText },
 ];

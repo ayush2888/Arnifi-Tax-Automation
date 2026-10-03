@@ -81,6 +81,12 @@ import {
   waiveReconForClose,
   waiveVatForClose,
 } from "@/server/close";
+import {
+  approveStatementsPack,
+  getFinancialStatements,
+  prepareStatementsPack,
+  yearEndCloseToRE,
+} from "@/server/statements";
 import { forwardUnlock } from "@/server/unlock-proxy";
 import { patchTransaction } from "@/server/data";
 import { createHash } from "node:crypto";
@@ -278,6 +284,9 @@ export async function GET(request: Request, contextParams: Ctx) {
     }
     if (path[0] === "periods" && path[1] && path[2] === "close-events") {
       return NextResponse.json(await listCloseEvents(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "financials") {
+      return NextResponse.json(await getFinancialStatements(session.userId, session.clientId, path[1]));
     }
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   } catch (error) {
@@ -530,6 +539,18 @@ export async function POST(request: Request, contextParams: Ctx) {
       return NextResponse.json(
         await waiveReconForClose(session.userId, session.clientId, path[1], String(body.reason || "")),
       );
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "year-end-close") {
+      const body = await request.json().catch(() => ({}));
+      return NextResponse.json(
+        await yearEndCloseToRE(session.userId, session.clientId, path[1], String(body.note || "")),
+      );
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "statements-prepare") {
+      return NextResponse.json(await prepareStatementsPack(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "release-packs" && path[1] && path[2] === "approve-statements") {
+      return NextResponse.json(await approveStatementsPack(session.userId, session.clientId, path[1]));
     }
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   } catch (error) {
