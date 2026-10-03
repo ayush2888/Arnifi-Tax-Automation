@@ -67,7 +67,14 @@ Copy `.env.example` to `.env` only if you run the processes outside Compose. The
 - Year-end close posts P&L into retained earnings and keeps RE roll-forward identity
 - Dual-control STATEMENTS pack release (preparer ≠ approver)
 
-Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04`–`10` SQL files.
+### Stage E exit checklist
+
+- CT report starts from ledger accounting profit and keeps an adjustments trail
+- CT payable reconciles to that ledger profit (+/− adjustments)
+- Download only after dual-control `RELEASED` CT pack (approve-before-download)
+- Product never submits CT to the FTA
+
+Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04`–`11` SQL files.
 
 ## Money, tenants, and files
 
