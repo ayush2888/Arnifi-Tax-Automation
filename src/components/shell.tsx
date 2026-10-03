@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import {
   BookOpenText,
+  ArrowLeftRight,
   Inbox,
   Landmark,
   Moon,
@@ -33,6 +34,7 @@ const NAV = [
   { href: "/journals", label: "Journals", icon: Landmark },
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/vat201", label: "VAT201", icon: Receipt },
+  { href: "/reconcile", label: "Reconcile", icon: ArrowLeftRight },
   { href: "/statements", label: "Statements", icon: ScrollText },
   { href: "/transactions", label: "Transactions", icon: Table2 },
   { href: "/rules", label: "Rules", icon: BookOpenText },

@@ -53,6 +53,18 @@ import {
   listReleasePacks,
   prepareVat201Pack,
 } from "@/server/release";
+import {
+  autoProposeExactMatches,
+  confirmMatch,
+  controlCheck,
+  createException,
+  listExceptions,
+  listOpenItems,
+  listReconGroups,
+  listUnmatchedBank,
+  proposeMatch,
+  resolveException,
+} from "@/server/recon";
 import { forwardUnlock } from "@/server/unlock-proxy";
 import { patchTransaction } from "@/server/data";
 import { createHash } from "node:crypto";
@@ -201,6 +213,29 @@ export async function GET(request: Request, contextParams: Ctx) {
     if (path[0] === "downloads") {
       return NextResponse.json(
         await listDownloadEvents(session.userId, session.clientId, url.searchParams.get("packId") || undefined),
+      );
+    }
+    if (path[0] === "open-items") {
+      return NextResponse.json(
+        await listOpenItems(session.userId, session.clientId, {
+          side: (url.searchParams.get("side") as "AR" | "AP" | null) || undefined,
+          status: url.searchParams.get("status") || undefined,
+          periodId: url.searchParams.get("periodId") || undefined,
+        }),
+      );
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "control-check") {
+      return NextResponse.json(await controlCheck(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "recon-groups") {
+      return NextResponse.json(await listReconGroups(session.userId, session.clientId));
+    }
+    if (path[0] === "recon-bank") {
+      return NextResponse.json(await listUnmatchedBank(session.userId, session.clientId));
+    }
+    if (path[0] === "recon-exceptions") {
+      return NextResponse.json(
+        await listExceptions(session.userId, session.clientId, url.searchParams.get("status") || "OPEN"),
       );
     }
     return NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -352,6 +387,38 @@ export async function POST(request: Request, contextParams: Ctx) {
           "Content-Disposition": `attachment; filename="vat201-v${bundle.version}-${bundle.packId.slice(0, 8)}.json"`,
         },
       });
+    }
+    if (path[0] === "recon-matches" && !path[1]) {
+      const body = await request.json();
+      return NextResponse.json(
+        await proposeMatch(session.userId, session.clientId, {
+          periodId: body.periodId || null,
+          bankTransactionIds: Array.isArray(body.bankTransactionIds) ? body.bankTransactionIds : [],
+          openItemIds: Array.isArray(body.openItemIds) ? body.openItemIds : [],
+          note: body.note ? String(body.note) : "",
+        }),
+      );
+    }
+    if (path[0] === "recon-matches" && path[1] && path[2] === "confirm") {
+      return NextResponse.json(await confirmMatch(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "recon-auto") {
+      return NextResponse.json(await autoProposeExactMatches(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "recon-exceptions" && !path[1]) {
+      const body = await request.json();
+      return NextResponse.json(
+        await createException(session.userId, session.clientId, {
+          kind: body.kind,
+          message: String(body.message || ""),
+          periodId: body.periodId || null,
+          bankTransactionId: body.bankTransactionId || null,
+          openItemId: body.openItemId || null,
+        }),
+      );
+    }
+    if (path[0] === "recon-exceptions" && path[1] && path[2] === "resolve") {
+      return NextResponse.json(await resolveException(session.userId, session.clientId, path[1]));
     }
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   } catch (error) {

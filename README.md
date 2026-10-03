@@ -46,7 +46,14 @@ Copy `.env.example` to `.env` only if you run the processes outside Compose. The
 - Download of a `RELEASED` pack shows status/version/date and appends to the download log
 - Product never submits to the FTA
 
-Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04-ledger.sql`, `05-ledger-seed.sql`, and `06-release-packs.sql`.
+### Stage C exit checklist
+
+- Posted sales/purchase invoices create AR/AP open items
+- Bank ↔ open-item matches (incl. exact auto-propose) confirm and post settlement journals
+- Control check: AR/AP sub-ledger equals control within tolerance
+- Exception queue can flag and resolve control breaks / unmatched rows
+
+Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04`–`07` SQL files.
 
 ## Money, tenants, and files
 
