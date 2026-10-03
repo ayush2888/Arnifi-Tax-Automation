@@ -38,7 +38,15 @@ Copy `.env.example` to `.env` only if you run the processes outside Compose. The
 - **VAT draft** page shows boxes reproducible from the ledger for that period
 - Existing bank-statement acceptance tests still pass
 
-Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04-ledger.sql` and `05-ledger-seed.sql`.
+### Stage B exit checklist
+
+- Omar prepares a VAT201 pack; Layla (different user) approves and releases
+- Preparer cannot approve their own pack (enforced for the first 90 days)
+- Posting a new journal in the period marks the released pack `STALE` and blocks download
+- Download of a `RELEASED` pack shows status/version/date and appends to the download log
+- Product never submits to the FTA
+
+Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04-ledger.sql`, `05-ledger-seed.sql`, and `06-release-packs.sql`.
 
 ## Money, tenants, and files
 

@@ -51,6 +51,7 @@ def migrated_database():
             "03-profile-key.sql",
             "04-ledger.sql",
             "05-ledger-seed.sql",
+            "06-release-packs.sql",
         ):
             _psql(database, "-f", str(ROOT / "db" / name))
     from daftar.bootstrap import bootstrap

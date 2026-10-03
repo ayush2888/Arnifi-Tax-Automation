@@ -29,6 +29,7 @@ import {
   transactionMeta,
   type TxnQuery,
 } from "@/server/data";
+import { LedgerError } from "@/server/errors";
 import {
   approveExtractionAndPost,
   createJournal,
@@ -36,7 +37,6 @@ import {
   createSyntheticDocument,
   getExtraction,
   getJournal,
-  LedgerError,
   listAccounts,
   listDocuments,
   listJournals,
@@ -45,8 +45,17 @@ import {
   trialBalance,
   vat201Draft,
 } from "@/server/ledger";
+import {
+  approveVat201Pack,
+  downloadVat201Pack,
+  getReleasePack,
+  listDownloadEvents,
+  listReleasePacks,
+  prepareVat201Pack,
+} from "@/server/release";
 import { forwardUnlock } from "@/server/unlock-proxy";
 import { patchTransaction } from "@/server/data";
+import { createHash } from "node:crypto";
 
 type Ctx = { params: Promise<{ path: string[] }> };
 
@@ -176,6 +185,24 @@ export async function GET(request: Request, contextParams: Ctx) {
     if (path[0] === "periods" && path[1] && path[2] === "vat201-draft") {
       return NextResponse.json(await vat201Draft(session.userId, session.clientId, path[1]));
     }
+    if (path[0] === "release-packs" && path[1] && path[2] === "downloads") {
+      return NextResponse.json(await listDownloadEvents(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "release-packs" && path[1]) {
+      const pack = await getReleasePack(session.userId, session.clientId, path[1]);
+      if (!pack) return NextResponse.json({ error: "not_found" }, { status: 404 });
+      return NextResponse.json(pack);
+    }
+    if (path[0] === "release-packs") {
+      return NextResponse.json(
+        await listReleasePacks(session.userId, session.clientId, url.searchParams.get("periodId") || undefined),
+      );
+    }
+    if (path[0] === "downloads") {
+      return NextResponse.json(
+        await listDownloadEvents(session.userId, session.clientId, url.searchParams.get("packId") || undefined),
+      );
+    }
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   } catch (error) {
     return fail(error);
@@ -304,6 +331,27 @@ export async function POST(request: Request, contextParams: Ctx) {
     }
     if (path[0] === "extractions" && path[1] && path[2] === "approve-post") {
       return NextResponse.json(await approveExtractionAndPost(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "periods" && path[1] && path[2] === "vat201-prepare") {
+      return NextResponse.json(await prepareVat201Pack(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "release-packs" && path[1] && path[2] === "approve") {
+      return NextResponse.json(await approveVat201Pack(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "release-packs" && path[1] && path[2] === "download") {
+      const forwarded = request.headers.get("x-forwarded-for") || "";
+      const ip = forwarded.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
+      const ipHash = ip ? createHash("sha256").update(ip).digest("hex").slice(0, 16) : null;
+      const bundle = await downloadVat201Pack(session.userId, session.clientId, path[1], {
+        ipHash,
+        userAgent: request.headers.get("user-agent"),
+      });
+      return new NextResponse(JSON.stringify(bundle, null, 2), {
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Content-Disposition": `attachment; filename="vat201-v${bundle.version}-${bundle.packId.slice(0, 8)}.json"`,
+        },
+      });
     }
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   } catch (error) {

@@ -4,16 +4,10 @@ import type { PoolClient } from "pg";
 
 import { withUser } from "@/lib/db";
 import { assertMinor } from "@/lib/money";
+import { LedgerError } from "@/server/errors";
+import { buildVat201Payload, dualControlRequired, markVatPacksStale } from "@/server/release";
 
-export class LedgerError extends Error {
-  constructor(
-    message: string,
-    readonly code: string,
-  ) {
-    super(message);
-    this.name = "LedgerError";
-  }
-}
+export { LedgerError };
 
 export type JournalLineInput = {
   accountId: string;
@@ -238,6 +232,7 @@ export async function createJournal(
         ],
       );
     }
+    if (body.post) await markVatPacksStale(db, clientId, body.periodId);
     return { id: entryId, status, contentHash };
   });
 }
@@ -263,6 +258,7 @@ export async function postJournal(userId: string, clientId: string, entryId: str
        WHERE id = $1 AND client_id = $2`,
       [entryId, clientId],
     );
+    await markVatPacksStale(db, clientId, entry.rows[0].period_id);
     return { id: entryId, status: "posted" };
   });
 }
@@ -274,8 +270,12 @@ export async function trialBalance(userId: string, clientId: string, periodId: s
               COALESCE(SUM(l.debit_minor), 0)::bigint AS "debitMinor",
               COALESCE(SUM(l.credit_minor), 0)::bigint AS "creditMinor"
        FROM chart_accounts a
-       LEFT JOIN journal_lines l ON l.account_id = a.id
-       LEFT JOIN journal_entries e ON e.id = l.entry_id AND e.status = 'posted' AND e.period_id = $2
+       LEFT JOIN (
+         SELECT l.account_id, l.debit_minor, l.credit_minor
+         FROM journal_lines l
+         JOIN journal_entries e ON e.id = l.entry_id
+         WHERE e.client_id = $1 AND e.period_id = $2 AND e.status = 'posted'
+       ) l ON l.account_id = a.id
        WHERE a.client_id = $1
        GROUP BY a.id
        HAVING COALESCE(SUM(l.debit_minor), 0) <> 0 OR COALESCE(SUM(l.credit_minor), 0) <> 0
@@ -478,122 +478,38 @@ export async function approveExtractionAndPost(userId: string, clientId: string,
       );
     }
     await db.query(`UPDATE documents SET status = 'posted' WHERE id = $1`, [row.document_id]);
+    await markVatPacksStale(db, clientId, row.period_id);
     return { documentId: row.document_id, extractionId, journalEntryId: entryId };
   });
 }
 
 export async function vat201Draft(userId: string, clientId: string, periodId: string) {
   return withUser(userId, async (db) => {
-    const period = await db.query(
-      `SELECT id, label, period_start AS "periodStart", period_end AS "periodEnd", status
-       FROM accounting_periods WHERE id = $1 AND client_id = $2`,
-      [periodId, clientId],
-    );
-    if (!period.rowCount) throw new LedgerError("period_not_found", "not_found");
-    const rows = await db.query(
-      `SELECT COALESCE(l.vat201_box, a.vat201_box) AS box,
-              COALESCE(SUM(l.debit_minor), 0)::bigint AS "debitMinor",
-              COALESCE(SUM(l.credit_minor), 0)::bigint AS "creditMinor"
-       FROM journal_lines l
-       JOIN journal_entries e ON e.id = l.entry_id
-       JOIN chart_accounts a ON a.id = l.account_id
-       WHERE e.client_id = $1
-         AND e.period_id = $2
-         AND e.status = 'posted'
-         AND COALESCE(l.vat201_box, a.vat201_box) IS NOT NULL
-       GROUP BY 1
-       ORDER BY 1`,
+    const payload = await buildVat201Payload(db, clientId, periodId);
+    const latest = await db.query(
+      `SELECT id, version, status, content_hash AS "contentHash",
+              prepared_by AS "preparedBy", approved_by AS "approvedBy",
+              released_at AS "releasedAt"
+       FROM release_packs
+       WHERE client_id = $1 AND period_id = $2 AND kind = 'VAT201'
+       ORDER BY version DESC LIMIT 1`,
       [clientId, periodId],
     );
-    const boxes: Record<string, { taxableMinor: number; vatMinor: number }> = {};
-    for (const row of rows.rows) {
-      const box = String(row.box);
-      // Output boxes (1b): credit on VAT payable is VAT; paired taxable is credit on revenue — report vat from control credit.
-      // Input box 9: debit on VAT recoverable is VAT.
-      if (box === "9") {
-        boxes[box] = {
-          taxableMinor: 0,
-          vatMinor: Number(row.debitMinor),
-        };
-      } else {
-        boxes[box] = {
-          taxableMinor: 0,
-          vatMinor: Number(row.creditMinor),
-        };
-      }
-    }
-    // Enrich taxable from revenue/expense journals linked via same entries that touched VAT boxes.
-    const taxable = await db.query(
-      `SELECT COALESCE(l.vat201_box, a.vat201_box) AS box,
-              SUM(
-                CASE
-                  WHEN a.account_type = 'income' THEN l.credit_minor
-                  WHEN a.account_type = 'expense' THEN l.debit_minor
-                  ELSE 0
-                END
-              )::bigint AS "taxableMinor"
-       FROM journal_lines l
-       JOIN journal_entries e ON e.id = l.entry_id
-       JOIN chart_accounts a ON a.id = l.account_id
-       WHERE e.client_id = $1 AND e.period_id = $2 AND e.status = 'posted'
-         AND e.id IN (
-           SELECT DISTINCT l2.entry_id
-           FROM journal_lines l2
-           JOIN journal_entries e2 ON e2.id = l2.entry_id
-           WHERE e2.client_id = $1 AND e2.period_id = $2 AND e2.status = 'posted'
-             AND l2.vat201_box IS NOT NULL
-         )
-       GROUP BY 1`,
-      [clientId, periodId],
-    );
-    for (const row of taxable.rows) {
-      const box = String(row.box || "");
-      if (!box || box === "null") continue;
-      // Map income lines to output box 1b and expenses to input box 9 when vat box null on P&L lines.
-    }
-    // Simpler approach: compute taxable from facts on source extractions for posted docs in period.
-    const fromDocs = await db.query(
-      `SELECT d.doc_type,
-              COALESCE((e.facts_json->>'taxableMinor')::bigint, 0) AS taxable,
-              COALESCE((e.facts_json->>'vatMinor')::bigint, 0) AS vat
-       FROM documents d
-       JOIN document_extractions e ON e.document_id = d.id AND e.status = 'approved'
-       WHERE d.client_id = $1 AND d.period_id = $2 AND d.status = 'posted'`,
-      [clientId, periodId],
-    );
-    let outTaxable = 0;
-    let outVat = 0;
-    let inTaxable = 0;
-    let inVat = 0;
-    for (const row of fromDocs.rows) {
-      if (row.doc_type === "SALES_INVOICE") {
-        outTaxable += Number(row.taxable);
-        outVat += Number(row.vat);
-      }
-      if (row.doc_type === "PURCHASE_INVOICE") {
-        inTaxable += Number(row.taxable);
-        inVat += Number(row.vat);
-      }
-    }
-    // Prefer document facts when present; else fall back to control account VAT only.
-    if (outVat || outTaxable) {
-      boxes["1b"] = { taxableMinor: outTaxable, vatMinor: outVat };
-    }
-    if (inVat || inTaxable) {
-      boxes["9"] = { taxableMinor: inTaxable, vatMinor: inVat };
-    }
-    const totalOutputVat = Object.entries(boxes)
-      .filter(([box]) => box !== "9" && box !== "10")
-      .reduce((sum, [, v]) => sum + v.vatMinor, 0);
-    const totalInputVat = (boxes["9"]?.vatMinor || 0) + (boxes["10"]?.vatMinor || 0);
     return {
-      period: period.rows[0],
-      boxes,
-      totalOutputVat,
-      totalInputVat,
-      netPayable: totalOutputVat - totalInputVat,
+      period: {
+        id: payload.periodId,
+        label: payload.periodLabel,
+        periodStart: payload.periodStart,
+        periodEnd: payload.periodEnd,
+      },
+      boxes: payload.boxes,
+      totalOutputVat: payload.totalOutputVat,
+      totalInputVat: payload.totalInputVat,
+      netPayable: payload.netPayable,
       status: "DRAFT",
-      note: "Draft from ledger - Stage B adds dual-control release and client download.",
+      latestPack: latest.rows[0] || null,
+      dualControlRequired: dualControlRequired(),
+      note: "Draft from ledger. Release requires preparer then a different approver; FTA filing stays outside the product.",
     };
   });
 }

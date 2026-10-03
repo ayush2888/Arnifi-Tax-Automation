@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import pg from "pg";
 
+import { LedgerError } from "./errors";
 import {
   assertBalanced,
   createJournal,
-  LedgerError,
   postJournal,
   sumDebitsCredits,
   trialBalance,
