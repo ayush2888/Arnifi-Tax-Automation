@@ -53,7 +53,14 @@ Copy `.env.example` to `.env` only if you run the processes outside Compose. The
 - Control check: AR/AP sub-ledger equals control within tolerance
 - Exception queue can flag and resolve control breaks / unmatched rows
 
-Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04`–`07` SQL files.
+### Stage D1 exit checklist
+
+- Accruals and depreciation can be proposed/posted (or waived) for a period
+- Close checklist requires TB identity (+ recon/VAT settled or waived)
+- `CLOSED` periods reject new journal posts until reopen with reason/ticket
+- Reopen audits and marks VAT packs `STALE`
+
+Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04`–`09` SQL files.
 
 ## Money, tenants, and files
 

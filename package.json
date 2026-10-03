@@ -7,7 +7,7 @@
     "build": "next build --turbopack",
     "start": "next start -H 0.0.0.0 -p 43123",
     "lint": "eslint",
-    "test": "tsx --test src/lib/money.test.ts src/lib/currency.test.ts src/lib/csv.test.ts src/lib/grid-layout.test.ts src/lib/fetch-window.test.ts src/lib/highlight.test.ts src/components/transactions/scroll.test.tsx src/server/policy.test.ts src/server/ledger.test.ts src/server/release.test.ts src/server/recon.test.ts src/server/unlock-proxy.test.ts",
+    "test": "tsx --test src/lib/money.test.ts src/lib/currency.test.ts src/lib/csv.test.ts src/lib/grid-layout.test.ts src/lib/fetch-window.test.ts src/lib/highlight.test.ts src/components/transactions/scroll.test.tsx src/server/policy.test.ts src/server/ledger.test.ts src/server/release.test.ts src/server/recon.test.ts src/server/close.test.ts src/server/unlock-proxy.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

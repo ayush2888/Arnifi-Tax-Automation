@@ -53,6 +53,8 @@ def migrated_database():
             "05-ledger-seed.sql",
             "06-release-packs.sql",
             "07-recon.sql",
+            "08-close.sql",
+            "09-close-seed.sql",
         ):
             _psql(database, "-f", str(ROOT / "db" / name))
     from daftar.bootstrap import bootstrap
@@ -83,6 +85,7 @@ def ctx():
         admin.commit()
     _psql("daftar_test", "-f", str(ROOT / "db" / "02-seed.sql"))
     _psql("daftar_test", "-f", str(ROOT / "db" / "05-ledger-seed.sql"))
+    _psql("daftar_test", "-f", str(ROOT / "db" / "09-close-seed.sql"))
     storage = ObjectStore(settings)
     storage.ensure_bucket()
     conn = connect(settings.database_url, OMAR)
