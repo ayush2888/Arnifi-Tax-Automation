@@ -60,7 +60,14 @@ Copy `.env.example` to `.env` only if you run the processes outside Compose. The
 - `CLOSED` periods reject new journal posts until reopen with reason/ticket
 - Reopen audits and marks VAT packs `STALE`
 
-Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04`–`09` SQL files.
+### Stage D2 exit checklist
+
+- P&L / balance sheet / demo CF built from the ledger for a period
+- Integrity gates: TB balanced, A=L+E, RE roll-forward — block STATEMENTS prepare/release when failed
+- Year-end close posts P&L into retained earnings and keeps RE roll-forward identity
+- Dual-control STATEMENTS pack release (preparer ≠ approver)
+
+Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04`–`10` SQL files.
 
 ## Money, tenants, and files
 

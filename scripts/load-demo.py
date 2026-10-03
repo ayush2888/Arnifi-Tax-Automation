@@ -48,6 +48,7 @@ def main() -> None:
             "07-recon.sql",
             "08-close.sql",
             "09-close-seed.sql",
+            "10-statements.sql",
         ):
             subprocess.check_call(
                 ["psql", "-h", "127.0.0.1", "-U", "daftar", "-d", "daftar", "-v", "ON_ERROR_STOP=1", "-f", str(ROOT / "db" / name)],

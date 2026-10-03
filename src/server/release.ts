@@ -147,7 +147,7 @@ export async function markVatPacksStale(
      SET status = 'STALE', released_at = NULL
      WHERE client_id = $1
        AND period_id = $2
-       AND kind = 'VAT201'
+       AND kind IN ('VAT201', 'STATEMENTS', 'CT')
        AND status IN ('DRAFT', 'PENDING_APPROVAL', 'RELEASED')`,
     [clientId, periodId],
   );
