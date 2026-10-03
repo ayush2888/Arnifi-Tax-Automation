@@ -75,6 +75,8 @@ export default async function globalSetup() {
   psql("daftar_e2e", ["-c", "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO daftar; GRANT ALL ON SCHEMA public TO public;"]);
   psql("daftar_e2e", ["-f", path.join(ROOT, "db/01-schema.sql")]);
   psql("daftar_e2e", ["-f", path.join(ROOT, "db/02-seed.sql")]);
+  // Portal security gate adds clients.is_synthetic; API context() reads it on every authed call.
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/12-security.sql")]);
 
   const admin = new pg.Client({ connectionString: "postgresql://daftar:daftar-local-only@127.0.0.1:5432/daftar_e2e" });
   await admin.connect();
