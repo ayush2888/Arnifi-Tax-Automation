@@ -47,9 +47,9 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="font-heading text-3xl tracking-tight">Workspace</h1>
+        <h1 className="font-heading text-3xl tracking-tight">Clients</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Upload a statement, confirm the columns once per bank, then review the rows that fail the balance check.
+          Current client workspace. Use Journals, Inbox, and VAT draft for the Stage A ledger slice; statements remain available below.
         </p>
       </header>
       {error ? <p className="text-sm text-danger">{error}</p> : null}

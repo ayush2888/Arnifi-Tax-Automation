@@ -1,6 +1,8 @@
-# Daftar
+# arnibooks
 
-Bank-statement workspace for an accounting firm. An accountant uploads a statement, the worker extracts the rows with the cheapest reliable method, and the grid shows every transaction with a link back to its source page.
+Arnifi ledger workspace for bookkeeping and VAT (built on the Daftar bank-statement core). Stage A adds an in-repo double-entry ledger, synthetic document → posting, and a draft VAT201 report from the ledger. Dual-control release and client download are Stage B — see [docs/architecture/01-plan-critique-and-roadmap.md](docs/architecture/01-plan-critique-and-roadmap.md).
+
+An accountant can still upload a bank statement; the worker extracts rows with the cheapest reliable method, and the grid links each transaction to its source page.
 
 This repository holds synthetic data only. Real statements, PDF passwords, and production credentials do not belong here.
 
@@ -24,9 +26,19 @@ Copy `.env.example` to `.env` only if you run the processes outside Compose. The
 
 - `src/` Next.js app and the API the grid calls
 - `worker/` Python ingestion worker
-- `db/` Postgres schema, row-level security, and the synthetic firm
+- `db/` Postgres schema (incl. `04-ledger.sql` / `05-ledger-seed.sql`), RLS, and the synthetic firm
 - `fixtures/` generator for synthetic statements (output is gitignored)
 - `.github/workflows/acceptance.yml` runs the acceptance tests on every push
+
+### Stage A exit checklist
+
+- Demo client (Al Noor) has an OPEN period and UAE starter COA
+- Unbalanced journals cannot post (app + DB deferred trigger)
+- Synthetic sales/purchase fixtures in **Inbox** become source-linked posted journals
+- **VAT draft** page shows boxes reproducible from the ledger for that period
+- Existing bank-statement acceptance tests still pass
+
+Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04-ledger.sql` and `05-ledger-seed.sql`.
 
 ## Money, tenants, and files
 

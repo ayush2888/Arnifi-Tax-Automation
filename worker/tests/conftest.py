@@ -45,8 +45,14 @@ def migrated_database():
     )
     for database in ("daftar_test",):
         _psql(database, "-c", "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;")
-        _psql(database, "-f", str(ROOT / "db" / "01-schema.sql"))
-        _psql(database, "-f", str(ROOT / "db" / "02-seed.sql"))
+        for name in (
+            "01-schema.sql",
+            "02-seed.sql",
+            "03-profile-key.sql",
+            "04-ledger.sql",
+            "05-ledger-seed.sql",
+        ):
+            _psql(database, "-f", str(ROOT / "db" / name))
     from daftar.bootstrap import bootstrap
 
     bootstrap()
@@ -74,6 +80,7 @@ def ctx():
         )
         admin.commit()
     _psql("daftar_test", "-f", str(ROOT / "db" / "02-seed.sql"))
+    _psql("daftar_test", "-f", str(ROOT / "db" / "05-ledger-seed.sql"))
     storage = ObjectStore(settings)
     storage.ensure_bucket()
     conn = connect(settings.database_url, OMAR)

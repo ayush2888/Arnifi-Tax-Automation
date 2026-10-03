@@ -38,7 +38,13 @@ def main() -> None:
         text=True,
     ).strip()
     if probe != "firms":
-        for name in ("01-schema.sql", "02-seed.sql"):
+        for name in (
+            "01-schema.sql",
+            "02-seed.sql",
+            "03-profile-key.sql",
+            "04-ledger.sql",
+            "05-ledger-seed.sql",
+        ):
             subprocess.check_call(
                 ["psql", "-h", "127.0.0.1", "-U", "daftar", "-d", "daftar", "-v", "ON_ERROR_STOP=1", "-f", str(ROOT / "db" / name)],
                 env=env,
