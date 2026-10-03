@@ -69,6 +69,10 @@ services:
       WORKER_BASE_URL: http://worker:4711
       WORKER_TOKEN: dev-worker-token
       PDF_PROBE_MIN_CHARS: "30"
+      PORTAL_SECURITY_STATUS: FAIL
+      REQUIRE_DOWNLOAD_MFA: "true"
+      MFA_DEMO_CODE: "000000"
+      MFA_TTL_SECONDS: "300"
       PORT: "43123"
       HOSTNAME: 0.0.0.0
     ports:

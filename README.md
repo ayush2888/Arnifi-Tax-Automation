@@ -74,7 +74,11 @@ Copy `.env.example` to `.env` only if you run the processes outside Compose. The
 - Download only after dual-control `RELEASED` CT pack (approve-before-download)
 - Product never submits CT to the FTA
 
-Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04`–`11` SQL files.
+### Portal security gate
+
+See [docs/architecture/06-portal-security-review.md](docs/architecture/06-portal-security-review.md). Default `PORTAL_SECURITY_STATUS=FAIL` keeps tenants synthetic-only. Pack downloads require step-up MFA (`MFA_DEMO_CODE`, default `000000`). Do not set status to `PASS` until the checklist is signed.
+
+Fresh Compose volumes pick up `db/0N-*.sql` automatically. Existing volumes need a recreate (`docker compose down -v` then `up --build`) or a manual `psql` apply of `04`–`12` SQL files.
 
 ## Money, tenants, and files
 
