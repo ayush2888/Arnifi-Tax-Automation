@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-import { DEMO_PERIOD_ID } from "@/config/product";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LedgerPeriodSelect, useLedgerPeriod } from "@/lib/use-ledger-period";
 
 type Checklist = {
   period: { id: string; label: string; status: string };
@@ -30,6 +30,7 @@ function fils(n: number) {
 }
 
 export default function ClosePage() {
+  const { periods, periodId, setPeriodId } = useLedgerPeriod();
   const [checklist, setChecklist] = useState<Checklist | null>(null);
   const [accruals, setAccruals] = useState<Accrual[]>([]);
   const [depr, setDepr] = useState<Depr[]>([]);
@@ -43,12 +44,13 @@ export default function ClosePage() {
   const [ticketRef, setTicketRef] = useState("");
 
   function load() {
+    if (!periodId) return;
     setError("");
     Promise.all([
-      fetch(`/api/periods/${DEMO_PERIOD_ID}/close-checklist`).then((r) => r.json()),
-      fetch(`/api/accruals?periodId=${DEMO_PERIOD_ID}`).then((r) => r.json()),
-      fetch(`/api/depreciation?periodId=${DEMO_PERIOD_ID}`).then((r) => r.json()),
-      fetch(`/api/periods/${DEMO_PERIOD_ID}/close-events`).then((r) => r.json()),
+      fetch(`/api/periods/${periodId}/close-checklist`).then((r) => r.json()),
+      fetch(`/api/accruals?periodId=${periodId}`).then((r) => r.json()),
+      fetch(`/api/depreciation?periodId=${periodId}`).then((r) => r.json()),
+      fetch(`/api/periods/${periodId}/close-events`).then((r) => r.json()),
       fetch("/api/accounts").then((r) => r.json()),
     ])
       .then(([check, acc, dep, ev, accts]) => {
@@ -62,8 +64,10 @@ export default function ClosePage() {
   }
 
   useEffect(() => {
+    if (!periodId) return;
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodId]);
 
   async function addAccrual() {
     setError("");
@@ -71,7 +75,7 @@ export default function ClosePage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        periodId: DEMO_PERIOD_ID,
+        periodId: periodId,
         kind: "ACCRUAL",
         memo: accrualMemo,
         debitAccountId: accounts.find((a) => a.code === "5000")?.id || EXPENSE,
@@ -104,7 +108,7 @@ export default function ClosePage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        periodId: DEMO_PERIOD_ID,
+        periodId: periodId,
         code: `FA-${Date.now().toString().slice(-6)}`,
         name: "Demo laptop",
         costMinor: 120000,
@@ -137,7 +141,7 @@ export default function ClosePage() {
   }
 
   async function waiveVat() {
-    await fetch(`/api/periods/${DEMO_PERIOD_ID}/waive-vat`, {
+    await fetch(`/api/periods/${periodId}/waive-vat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason: "Demo close without VAT release" }),
@@ -148,7 +152,7 @@ export default function ClosePage() {
   async function close() {
     setError("");
     setMessage("");
-    const response = await fetch(`/api/periods/${DEMO_PERIOD_ID}/close`, {
+    const response = await fetch(`/api/periods/${periodId}/close`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason: "Month-end close" }),
@@ -164,7 +168,7 @@ export default function ClosePage() {
 
   async function reopen() {
     setError("");
-    const response = await fetch(`/api/periods/${DEMO_PERIOD_ID}/reopen`, {
+    const response = await fetch(`/api/periods/${periodId}/reopen`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason: reopenReason, ticketRef }),
@@ -186,6 +190,7 @@ export default function ClosePage() {
           Accruals, depreciation, trial-balance identity, and a close checklist. Closed periods reject new posts until
           a documented reopen.
         </p>
+        <LedgerPeriodSelect periods={periods} periodId={periodId} onChange={setPeriodId} />
       </header>
       {error ? <p className="text-sm text-danger">{error}</p> : null}
       {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
@@ -213,7 +218,7 @@ export default function ClosePage() {
             <Button
               variant="outline"
               onClick={async () => {
-                await fetch(`/api/periods/${DEMO_PERIOD_ID}/waive-recon`, {
+                await fetch(`/api/periods/${periodId}/waive-recon`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ reason: "Demo close without recon clear" }),

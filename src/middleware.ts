@@ -14,7 +14,7 @@ export function middleware(request: NextRequest) {
 
   if (PUBLIC.has(path)) {
     if (hasSession && path === "/login") {
-      return NextResponse.redirect(new URL("/books", request.url));
+      return NextResponse.redirect(new URL("/journals", request.url));
     }
     return NextResponse.next();
   }

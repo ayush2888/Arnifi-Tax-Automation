@@ -7,12 +7,12 @@ import {
   Activity,
   ArrowLeftRight,
   FileSpreadsheet,
-  Home,
   Landmark,
+  Lock,
   PanelLeft,
   Receipt,
+  Scale,
   Search,
-  Settings,
 } from "lucide-react";
 
 import { BooksShellProvider, useBooksShell } from "@/components/books/books-shell-context";
@@ -31,13 +31,13 @@ type Directory = {
 };
 
 const NAV = [
-  { href: "/books", label: "Home", icon: Home },
-  { href: "/books/transactions", label: "Transactions", icon: ArrowLeftRight },
-  { href: "/books/expenses", label: "Expenses", icon: Receipt },
-  { href: "/books/journals", label: "Ledger", icon: Landmark },
-  { href: "/books/reports/trial-balance", label: "Reports", icon: FileSpreadsheet },
-  { href: "/books/health", label: "Company Health", icon: Activity },
-  { href: "/books/settings", label: "Settings", icon: Settings },
+  { href: "/transactions", label: "Bank", icon: ArrowLeftRight },
+  { href: "/journals", label: "Ledger", icon: Landmark },
+  { href: "/vat201", label: "VAT", icon: Receipt },
+  { href: "/reconcile", label: "Reconcile", icon: Scale },
+  { href: "/close", label: "Close", icon: Lock },
+  { href: "/reports", label: "Reports", icon: FileSpreadsheet },
+  { href: "/ct", label: "Corporate tax", icon: Activity },
 ];
 
 function ShellInner({ children }: { children: React.ReactNode }) {
@@ -57,7 +57,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
     return all.filter((c) => BOOKS_CLIENT_ID_SET.has(c.id));
   }, [directory?.clients]);
 
-  const switcherClients = isBooks ? booksClients : directory?.clients || [];
+  const switcherClients = directory?.clients || [];
 
   useEffect(() => {
     if (isLogin) {
@@ -105,10 +105,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   const nav = (
     <nav className="flex flex-col gap-0.5 px-2">
       {NAV.map((item) => {
-        const active =
-          item.href === "/books"
-            ? pathname === "/books"
-            : pathname === item.href || pathname.startsWith(`${item.href}/`);
+        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
         return (
           <Link
@@ -165,7 +162,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
         >
           <div className={cn("flex items-center gap-2 px-4 py-5", collapsed && "justify-center px-2")}>
             <Link
-              href="/books"
+              href="/journals"
               className="text-lg font-semibold tracking-tight text-primary"
               title={PRODUCT_NAME}
             >

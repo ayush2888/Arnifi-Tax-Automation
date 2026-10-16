@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-import { DEMO_PERIOD_ID } from "@/config/product";
 import { Button } from "@/components/ui/button";
+import { LedgerPeriodSelect, useLedgerPeriod } from "@/lib/use-ledger-period";
 
 type Draft = {
   period: { id: string; label: string; status?: string };
@@ -51,6 +51,7 @@ function fils(n: number) {
 }
 
 export default function Vat201Page() {
+  const { periods, periodId, setPeriodId } = useLedgerPeriod();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [packs, setPacks] = useState<Pack[]>([]);
   const [downloads, setDownloads] = useState<DownloadEvent[]>([]);
@@ -58,13 +59,14 @@ export default function Vat201Page() {
   const [message, setMessage] = useState("");
 
   function load() {
+    if (!periodId) return;
     setError("");
     Promise.all([
-      fetch(`/api/periods/${DEMO_PERIOD_ID}/vat201-draft`).then(async (r) => {
+      fetch(`/api/periods/${periodId}/vat201-draft`).then(async (r) => {
         if (!r.ok) throw new Error("draft");
         return r.json();
       }),
-      fetch(`/api/release-packs?periodId=${encodeURIComponent(DEMO_PERIOD_ID)}`).then((r) => r.json()),
+      fetch(`/api/release-packs?periodId=${encodeURIComponent(periodId)}`).then((r) => r.json()),
       fetch("/api/downloads").then((r) => r.json()),
     ])
       .then(([nextDraft, nextPacks, nextDownloads]) => {
@@ -76,13 +78,15 @@ export default function Vat201Page() {
   }
 
   useEffect(() => {
+    if (!periodId) return;
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodId]);
 
   async function prepare() {
     setError("");
     setMessage("");
-    const response = await fetch(`/api/periods/${DEMO_PERIOD_ID}/vat201-prepare`, { method: "POST" });
+    const response = await fetch(`/api/periods/${periodId}/vat201-prepare`, { method: "POST" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       setError(payload.message || payload.error || "Prepare failed.");
@@ -131,8 +135,9 @@ export default function Vat201Page() {
         <h1 className="font-heading text-3xl tracking-tight">VAT201</h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
           Draft from the ledger, then dual-control release (preparer ≠ approver). Download shows status, version, and date;
-          every download is audited. The product never submits to the FTA.
+          every download is audited. The           product never submits to the FTA.
         </p>
+        <LedgerPeriodSelect periods={periods} periodId={periodId} onChange={setPeriodId} />
       </header>
       <Button variant="outline" size="sm" onClick={load}>
         Refresh

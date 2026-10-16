@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useState } from "react";
 
@@ -124,24 +125,19 @@ export default function TrialBalancePage() {
 
       <div className="flex flex-wrap gap-2 text-sm border-b border-border pb-2">
         <span className="rounded-md bg-primary px-3 py-1 text-primary-foreground">Trial balance</span>
-        <span
-          className="rounded-md px-3 py-1 text-muted-foreground opacity-60 cursor-not-allowed"
-          title="Available in Phase 6"
-        >
+        <Link href="/reports#pnl" className="rounded-md px-3 py-1 text-foreground hover:bg-muted">
           Profit &amp; loss
-        </span>
-        <span
-          className="rounded-md px-3 py-1 text-muted-foreground opacity-60 cursor-not-allowed"
-          title="Available in Phase 6"
-        >
+        </Link>
+        <Link href="/reports#bs" className="rounded-md px-3 py-1 text-foreground hover:bg-muted">
           Balance sheet
-        </span>
-        <span
-          className="rounded-md px-3 py-1 text-muted-foreground opacity-60 cursor-not-allowed"
-          title="Available in Phase 6"
+        </Link>
+        <Link
+          href="/reports#cash"
+          className="rounded-md px-3 py-1 text-muted-foreground hover:bg-muted"
+          title="Demo cash flow from bank movement, not a full worksheet"
         >
           Cash flow
-        </span>
+        </Link>
       </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}

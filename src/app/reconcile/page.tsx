@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-import { DEMO_PERIOD_ID } from "@/config/product";
 import { Button } from "@/components/ui/button";
+import { LedgerPeriodSelect, useLedgerPeriod } from "@/lib/use-ledger-period";
 
 type OpenItem = {
   id: string;
@@ -43,6 +43,7 @@ function fils(n: number) {
 }
 
 export default function ReconcilePage() {
+  const { periods, periodId, setPeriodId } = useLedgerPeriod();
   const [openItems, setOpenItems] = useState<OpenItem[]>([]);
   const [bank, setBank] = useState<BankRow[]>([]);
   const [control, setControl] = useState<Control | null>(null);
@@ -54,11 +55,12 @@ export default function ReconcilePage() {
   const [message, setMessage] = useState("");
 
   function load() {
+    if (!periodId) return;
     setError("");
     Promise.all([
-      fetch(`/api/open-items?periodId=${DEMO_PERIOD_ID}`).then((r) => r.json()),
+      fetch(`/api/open-items?periodId=${periodId}`).then((r) => r.json()),
       fetch("/api/recon-bank").then((r) => r.json()),
-      fetch(`/api/periods/${DEMO_PERIOD_ID}/control-check`).then((r) => r.json()),
+      fetch(`/api/periods/${periodId}/control-check`).then((r) => r.json()),
       fetch("/api/recon-exceptions?status=OPEN").then((r) => r.json()),
       fetch("/api/recon-groups").then((r) => r.json()),
     ])
@@ -73,8 +75,10 @@ export default function ReconcilePage() {
   }
 
   useEffect(() => {
+    if (!periodId) return;
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodId]);
 
   async function proposeAndConfirm() {
     setError("");
@@ -87,7 +91,7 @@ export default function ReconcilePage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        periodId: DEMO_PERIOD_ID,
+        periodId: periodId,
         bankTransactionIds: [selectedBank],
         openItemIds: [selectedOpen],
       }),
@@ -112,7 +116,7 @@ export default function ReconcilePage() {
   async function autoPropose() {
     setError("");
     setMessage("");
-    const response = await fetch(`/api/periods/${DEMO_PERIOD_ID}/recon-auto`, { method: "POST" });
+    const response = await fetch(`/api/periods/${periodId}/recon-auto`, { method: "POST" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       setError(payload.message || payload.error || "Auto-propose failed.");
@@ -129,7 +133,7 @@ export default function ReconcilePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         kind: "CONTROL_BREAK",
-        periodId: DEMO_PERIOD_ID,
+        periodId: periodId,
         message: `AR delta ${control.ar.deltaMinor}, AP delta ${control.ap.deltaMinor}`,
       }),
     });
@@ -159,6 +163,7 @@ export default function ReconcilePage() {
         <p className="max-w-2xl text-sm text-muted-foreground">
           AR/AP open items versus bank rows. Confirm matches, watch control vs sub-ledger, and work the exception queue.
         </p>
+        <LedgerPeriodSelect periods={periods} periodId={periodId} onChange={setPeriodId} />
       </header>
       {error ? <p className="text-sm text-danger">{error}</p> : null}
       {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}

@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-import { DEMO_PERIOD_ID } from "@/config/product";
 import { Button } from "@/components/ui/button";
+import { LedgerPeriodSelect, useLedgerPeriod } from "@/lib/use-ledger-period";
 
 type Financials = {
   period: { label: string; status: string };
@@ -39,19 +39,21 @@ function fils(n: number) {
 }
 
 export default function ReportsPage() {
+  const { periods, periodId, setPeriodId } = useLedgerPeriod();
   const [data, setData] = useState<Financials | null>(null);
   const [packs, setPacks] = useState<Pack[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
   function load() {
+    if (!periodId) return;
     setError("");
     Promise.all([
-      fetch(`/api/periods/${DEMO_PERIOD_ID}/financials`).then(async (r) => {
+      fetch(`/api/periods/${periodId}/financials`).then(async (r) => {
         if (!r.ok) throw new Error("financials");
         return r.json();
       }),
-      fetch(`/api/release-packs?periodId=${DEMO_PERIOD_ID}`).then((r) => r.json()),
+      fetch(`/api/release-packs?periodId=${periodId}`).then((r) => r.json()),
     ])
       .then(([financials, packList]) => {
         setData(financials);
@@ -61,13 +63,15 @@ export default function ReportsPage() {
   }
 
   useEffect(() => {
+    if (!periodId) return;
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodId]);
 
   async function yearEnd() {
     setError("");
     setMessage("");
-    const response = await fetch(`/api/periods/${DEMO_PERIOD_ID}/year-end-close`, {
+    const response = await fetch(`/api/periods/${periodId}/year-end-close`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ note: "Demo YE close" }),
@@ -84,7 +88,7 @@ export default function ReportsPage() {
   async function prepare() {
     setError("");
     setMessage("");
-    const response = await fetch(`/api/periods/${DEMO_PERIOD_ID}/statements-prepare`, { method: "POST" });
+    const response = await fetch(`/api/periods/${periodId}/statements-prepare`, { method: "POST" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       setError(payload.message || payload.error || "Prepare blocked — integrity gates failed.");
@@ -114,6 +118,7 @@ export default function ReportsPage() {
           P&L, balance sheet, and demo cash flow from the ledger. Integrity gates (TB, A=L+E, RE roll-forward) must pass
           before a STATEMENTS pack can be prepared.
         </p>
+        <LedgerPeriodSelect periods={periods} periodId={periodId} onChange={setPeriodId} />
       </header>
       {error ? <p className="text-sm text-danger">{error}</p> : null}
       {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
@@ -148,7 +153,7 @@ export default function ReportsPage() {
             </ul>
           </section>
 
-          <section className="space-y-2 border-t border-border pt-4">
+          <section id="pnl" className="space-y-2 border-t border-border pt-4">
             <h2 className="font-heading text-xl">Profit &amp; loss</h2>
             <ul className="max-w-xl text-sm">
               {data.pnl.lines.map((line) => (
@@ -163,7 +168,7 @@ export default function ReportsPage() {
             <p className="text-sm font-medium">Net income {fils(data.pnl.netIncomeMinor)}</p>
           </section>
 
-          <section className="space-y-2 border-t border-border pt-4">
+          <section id="bs" className="space-y-2 border-t border-border pt-4">
             <h2 className="font-heading text-xl">Balance sheet</h2>
             <div className="grid max-w-3xl gap-4 md:grid-cols-3 text-sm">
               <div>
@@ -196,7 +201,7 @@ export default function ReportsPage() {
             </div>
           </section>
 
-          <section className="space-y-2 border-t border-border pt-4 text-sm">
+          <section id="cash" className="space-y-2 border-t border-border pt-4 text-sm">
             <h2 className="font-heading text-xl">Cash flow (demo)</h2>
             <p>Opening cash {fils(data.cashFlow.openingCashMinor)}</p>
             <p>Net cash movement {fils(data.cashFlow.netCashMinor)}</p>

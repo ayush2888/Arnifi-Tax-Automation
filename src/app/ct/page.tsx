@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-import { DEMO_PERIOD_ID } from "@/config/product";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LedgerPeriodSelect, useLedgerPeriod } from "@/lib/use-ledger-period";
 
 type CtReport = {
   periodLabel: string;
@@ -28,6 +28,7 @@ function fils(n: number) {
 }
 
 export default function CtPage() {
+  const { periods, periodId, setPeriodId } = useLedgerPeriod();
   const [report, setReport] = useState<CtReport | null>(null);
   const [packs, setPacks] = useState<Pack[]>([]);
   const [direction, setDirection] = useState<"ADD_BACK" | "DEDUCT">("ADD_BACK");
@@ -37,13 +38,14 @@ export default function CtPage() {
   const [message, setMessage] = useState("");
 
   function load() {
+    if (!periodId) return;
     setError("");
     Promise.all([
-      fetch(`/api/periods/${DEMO_PERIOD_ID}/ct`).then(async (r) => {
+      fetch(`/api/periods/${periodId}/ct`).then(async (r) => {
         if (!r.ok) throw new Error("ct");
         return r.json();
       }),
-      fetch(`/api/release-packs?periodId=${DEMO_PERIOD_ID}`).then((r) => r.json()),
+      fetch(`/api/release-packs?periodId=${periodId}`).then((r) => r.json()),
     ])
       .then(([ct, packList]) => {
         setReport(ct);
@@ -53,8 +55,10 @@ export default function CtPage() {
   }
 
   useEffect(() => {
+    if (!periodId) return;
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodId]);
 
   async function addAdjustment() {
     setError("");
@@ -62,7 +66,7 @@ export default function CtPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        periodId: DEMO_PERIOD_ID,
+        periodId: periodId,
         direction,
         amountMinor: Number(amount),
         reason,
@@ -84,7 +88,7 @@ export default function CtPage() {
   async function prepare() {
     setError("");
     setMessage("");
-    const response = await fetch(`/api/periods/${DEMO_PERIOD_ID}/ct-prepare`, { method: "POST" });
+    const response = await fetch(`/api/periods/${periodId}/ct-prepare`, { method: "POST" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       setError(payload.message || payload.error || "Prepare failed.");
@@ -133,6 +137,7 @@ export default function CtPage() {
           Computation report from ledger accounting profit plus an adjustments trail. Approve before download — the
           product never submits to the FTA.
         </p>
+        <LedgerPeriodSelect periods={periods} periodId={periodId} onChange={setPeriodId} />
       </header>
       {error ? <p className="text-sm text-danger">{error}</p> : null}
       {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}

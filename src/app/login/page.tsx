@@ -6,15 +6,15 @@ import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PRODUCT_NAME } from "@/config/product";
+import { AL_NOOR_CLIENT_ID, PRODUCT_NAME } from "@/config/product";
 
 const DEMO_USER = "55555555-5555-4555-8555-555555555555";
-const DEMO_CLIENT = "e1000001-0000-4000-8000-000000000001";
+const DEMO_CLIENT = AL_NOOR_CLIENT_ID;
 
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/books";
+  const next = params.get("next") || "/journals";
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
