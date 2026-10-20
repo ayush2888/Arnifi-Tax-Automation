@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from "react";
 
-import { DEMO_PERIOD_ID } from "@/config/product";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useLedgerPeriod } from "@/lib/use-ledger-period";
 
-type Period = { id: string; label: string; status: string };
 type Account = { id: string; code: string; name: string };
 type Journal = {
   id: string;
@@ -21,10 +20,9 @@ type Journal = {
 type LineDraft = { accountId: string; debitMinor: string; creditMinor: string };
 
 export default function JournalsPage() {
-  const [periods, setPeriods] = useState<Period[]>([]);
+  const { periods, periodId, setPeriodId } = useLedgerPeriod();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [journals, setJournals] = useState<Journal[] | null>(null);
-  const [periodId, setPeriodId] = useState(DEMO_PERIOD_ID);
   const [error, setError] = useState("");
   const [memo, setMemo] = useState("Manual journal");
   const [entryDate, setEntryDate] = useState("2026-01-15");
@@ -34,18 +32,14 @@ export default function JournalsPage() {
   ]);
 
   function load(nextPeriodId = periodId) {
+    if (!nextPeriodId) return;
     Promise.all([
-      fetch("/api/periods").then((r) => r.json()),
       fetch("/api/accounts").then((r) => r.json()),
       fetch(`/api/journals?periodId=${encodeURIComponent(nextPeriodId)}`).then((r) => r.json()),
     ])
-      .then(([periodList, accountList, journalList]) => {
-        setPeriods(periodList);
-        setAccounts(accountList);
-        setJournals(journalList);
-        if (!periodList.some((p: Period) => p.id === nextPeriodId) && periodList[0]) {
-          setPeriodId(periodList[0].id);
-        }
+      .then(([accountList, journalList]) => {
+        setAccounts(Array.isArray(accountList) ? accountList : []);
+        setJournals(Array.isArray(journalList) ? journalList : []);
         setLines((current) =>
           current.map((line, index) => ({
             ...line,
@@ -57,11 +51,16 @@ export default function JournalsPage() {
   }
 
   useEffect(() => {
-    load();
+    if (!periodId) return;
+    load(periodId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [periodId]);
 
   async function createAndPost() {
+    if (!periodId) {
+      setError("Select an open period before posting.");
+      return;
+    }
     setError("");
     const body = {
       periodId,
@@ -93,6 +92,7 @@ export default function JournalsPage() {
         <h1 className="font-heading text-3xl tracking-tight">Journals</h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
           Double-entry journals for the current client. Posted entries must balance in app code and in the database.
+          This screen writes the real notebook (`journal_*`), which VAT and reports read.
         </p>
       </header>
       {error ? <p className="text-sm text-danger">{error}</p> : null}
@@ -104,10 +104,7 @@ export default function JournalsPage() {
             id="period"
             className="flex h-9 min-w-48 rounded-md border border-input bg-background px-2 text-sm"
             value={periodId}
-            onChange={(event) => {
-              setPeriodId(event.target.value);
-              load(event.target.value);
-            }}
+            onChange={(event) => setPeriodId(event.target.value)}
           >
             {periods.map((period) => (
               <option key={period.id} value={period.id}>

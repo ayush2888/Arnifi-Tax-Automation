@@ -29,4 +29,4 @@ Demo company for the real books: Al Noor Trading LLC (`22222222-2222-4222-8222-2
 | Expenses | `/books/expenses` | Placeholder. |
 | Company Health | `/books/health` | Placeholder. |
 
-The menu in this repo opens the real routes above. Expenses and Company Health stay in the code and off the menu.
+The menu opens Bank, Statements (PDF upload), Ledger, VAT, Reconcile, Close, Reports, and Corporate tax for the signed-in company (default Al Noor). Expenses and Company Health stay in the code and off the menu.

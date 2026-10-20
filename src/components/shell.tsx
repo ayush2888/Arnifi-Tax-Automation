@@ -13,6 +13,7 @@ import {
   Receipt,
   Scale,
   Search,
+  Upload,
 } from "lucide-react";
 
 import { BooksShellProvider, useBooksShell } from "@/components/books/books-shell-context";
@@ -32,6 +33,7 @@ type Directory = {
 
 const NAV = [
   { href: "/transactions", label: "Bank", icon: ArrowLeftRight },
+  { href: "/statements", label: "Statements", icon: Upload },
   { href: "/journals", label: "Ledger", icon: Landmark },
   { href: "/vat201", label: "VAT", icon: Receipt },
   { href: "/reconcile", label: "Reconcile", icon: Scale },

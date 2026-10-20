@@ -973,10 +973,17 @@ export function LedgerPageChrome({
 
       {transactionsEmpty ? (
         <div className="rounded-lg border border-dashed border-border bg-card px-6 py-16 text-center">
-          <p className="text-sm font-medium text-foreground">Coming in Phase 2</p>
+          <p className="text-sm font-medium text-foreground">Bank rows live on Bank</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Bank and card transaction matching will live here. Use the Journals tab for the live ledger.
+            Open the Bank screen for statement rows from the worker. The Journals tab is the live ledger for this
+            company.
           </p>
+          <Link
+            href="/transactions"
+            className="mt-4 inline-flex h-8 items-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground"
+          >
+            Go to Bank
+          </Link>
         </div>
       ) : (
         children

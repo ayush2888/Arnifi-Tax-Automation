@@ -6,31 +6,40 @@ export default function BooksHomePage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Home</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Arnibooks workspace — synthetic companies only until portal security passes.
+          Use the main menu for the real notebook. These links open the same company screens as Bank, Ledger, and
+          Reports.
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <Link
-          href="/books/journals"
+          href="/journals"
           className="rounded-xl border border-border bg-card p-5 shadow-sm transition hover:border-primary/40"
         >
           <h2 className="font-medium">Ledger</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Review and post journal entries.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Review and post journal entries in journal_*.</p>
         </Link>
         <Link
-          href="/books/reports/trial-balance"
+          href="/reports"
           className="rounded-xl border border-border bg-card p-5 shadow-sm transition hover:border-primary/40"
         >
-          <h2 className="font-medium">Trial balance</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Posted balances by account.</p>
+          <h2 className="font-medium">Reports</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Profit and loss and balance sheet from that ledger.</p>
+        </Link>
+        <Link
+          href="/transactions"
+          className="rounded-xl border border-border bg-card p-5 shadow-sm transition hover:border-primary/40"
+        >
+          <h2 className="font-medium">Bank</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Statement rows extracted by the worker.</p>
+        </Link>
+        <Link
+          href="/vat201"
+          className="rounded-xl border border-border bg-card p-5 shadow-sm transition hover:border-primary/40"
+        >
+          <h2 className="font-medium">VAT</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Draft VAT201 from posted journals.</p>
         </Link>
       </div>
-      <Link
-        href="/dev/ui"
-        className="inline-flex h-8 items-center rounded-lg border border-border bg-background px-3 text-sm font-medium hover:bg-muted"
-      >
-        UI component gallery
-      </Link>
     </div>
   );
 }
