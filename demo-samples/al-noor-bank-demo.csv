@@ -1,0 +1,10 @@
+Bank Statement — Al Noor Trading LLC (synthetic demo)
+Account,AE** **** **** 0001
+Currency,AED
+Period,2026-01-01 to 2026-01-31
+Opening Balance,10000.00
+Closing Balance,13250.00
+
+Date,Description,Debit,Credit,Balance,Reference
+2026-01-05,Customer receipt — Demo Corp,,5250.00,15250.00,RV-DEMO-001
+2026-01-12,Office rent — January,2000.00,,13250.00,PV-DEMO-001

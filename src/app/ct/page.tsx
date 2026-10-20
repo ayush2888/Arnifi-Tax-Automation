@@ -94,7 +94,7 @@ export default function CtPage() {
       setError(payload.message || payload.error || "Prepare failed.");
       return;
     }
-    setMessage(`Prepared CT v${payload.version}. Switch to Layla to approve before download.`);
+    setMessage(`Prepared CT v${payload.version}. Switch Role to Approver in the sidebar before download.`);
     load();
   }
 

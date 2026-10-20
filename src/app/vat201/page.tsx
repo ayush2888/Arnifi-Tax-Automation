@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { LedgerPeriodSelect, useLedgerPeriod } from "@/lib/use-ledger-period";
 
@@ -92,7 +93,7 @@ export default function Vat201Page() {
       setError(payload.message || payload.error || "Prepare failed.");
       return;
     }
-    setMessage(`Prepared v${payload.version} — switch to Layla (admin) in the sidebar to approve.`);
+    setMessage(`Prepared v${payload.version} — switch Role to Approver in the sidebar to approve.`);
     load();
   }
 
@@ -130,67 +131,72 @@ export default function Vat201Page() {
   }
 
   return (
-    <div className="space-y-5">
-      <header>
-        <h1 className="font-heading text-3xl tracking-tight">VAT201</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Draft from the ledger, then dual-control release (preparer ≠ approver). Download shows status, version, and date;
-          every download is audited. The           product never submits to the FTA.
-        </p>
-        <LedgerPeriodSelect periods={periods} periodId={periodId} onChange={setPeriodId} />
-      </header>
-      <Button variant="outline" size="sm" onClick={load}>
-        Refresh
-      </Button>
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
+    <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader
+        title="VAT201"
+        description="Draft from the ledger, then dual-control release (preparer ≠ approver). Every download is audited. The product never submits to the FTA."
+        actions={
+          <>
+            <LedgerPeriodSelect periods={periods} periodId={periodId} onChange={setPeriodId} />
+            <Button variant="outline" size="sm" onClick={load}>
+              Refresh
+            </Button>
+          </>
+        }
+      />
+      {error ? (
+        <p className="rounded-lg border border-destructive/30 bg-red-50 px-3 py-2 text-sm text-destructive">{error}</p>
+      ) : null}
       {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
       {!draft && !error ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
       {draft ? (
         <div className="space-y-4">
-          <p className="text-sm">
+          <p className="text-sm text-muted-foreground">
             {draft.period.label} · live {draft.status}
             {draft.latestPack
               ? ` · latest pack v${draft.latestPack.version} (${draft.latestPack.status})`
               : " · no pack yet"}
           </p>
-          <table className="w-full max-w-xl border-collapse text-sm">
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="border-b border-border text-left">
-                <th className="py-2 pr-3">Box</th>
-                <th className="py-2 pr-3">Taxable (AED)</th>
-                <th className="py-2">VAT (AED)</th>
+              <tr className="border-b border-border bg-muted/40 text-left">
+                <th className="px-4 py-2.5 pr-3 font-medium">Box</th>
+                <th className="px-4 py-2.5 pr-3 font-medium">Taxable (AED)</th>
+                <th className="px-4 py-2.5 font-medium">VAT (AED)</th>
               </tr>
             </thead>
             <tbody>
               {Object.keys(draft.boxes).length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="py-3 text-muted-foreground">
+                  <td colSpan={3} className="px-4 py-6 text-muted-foreground">
                     No VAT-tagged postings yet. Approve sales/purchase fixtures in Inbox.
                   </td>
                 </tr>
               ) : (
                 Object.entries(draft.boxes).map(([box, amounts]) => (
                   <tr key={box} className="border-b border-border">
-                    <td className="py-2 pr-3 font-medium">{box}</td>
-                    <td className="py-2 pr-3">{fils(amounts.taxableMinor)}</td>
-                    <td className="py-2">{fils(amounts.vatMinor)}</td>
+                    <td className="px-4 py-2.5 pr-3 font-medium">{box}</td>
+                    <td className="px-4 py-2.5 pr-3 tabular-nums">{fils(amounts.taxableMinor)}</td>
+                    <td className="px-4 py-2.5 tabular-nums">{fils(amounts.vatMinor)}</td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
-          <dl className="grid max-w-xl gap-2 text-sm">
+          </div>
+          <dl className="grid max-w-xl gap-2 rounded-xl border border-border bg-card p-4 text-sm shadow-sm">
             <div className="flex justify-between gap-4">
               <dt className="text-muted-foreground">Total output VAT</dt>
-              <dd>{fils(draft.totalOutputVat)}</dd>
+              <dd className="tabular-nums">{fils(draft.totalOutputVat)}</dd>
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-muted-foreground">Total input VAT</dt>
-              <dd>{fils(draft.totalInputVat)}</dd>
+              <dd className="tabular-nums">{fils(draft.totalInputVat)}</dd>
             </div>
             <div className="flex justify-between gap-4 font-medium">
               <dt>Net payable</dt>
-              <dd>{fils(draft.netPayable)}</dd>
+              <dd className="tabular-nums">{fils(draft.netPayable)}</dd>
             </div>
           </dl>
           <div className="flex flex-wrap gap-2">
@@ -200,8 +206,8 @@ export default function Vat201Page() {
         </div>
       ) : null}
 
-      <section className="space-y-2 border-t border-border pt-4">
-        <h2 className="font-heading text-xl">Release packs</h2>
+      <section className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-sm">
+        <h2 className="font-heading text-base font-semibold">Release packs</h2>
         {packs.length === 0 ? (
           <p className="text-sm text-muted-foreground">No packs yet.</p>
         ) : (

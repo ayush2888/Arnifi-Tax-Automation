@@ -24,6 +24,14 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { BOOKS_CLIENT_ID_SET, PRODUCT_NAME } from "@/config/product";
 import { cn } from "@/lib/utils";
 
+function roleLabel(role: string) {
+  const key = role.toLowerCase();
+  if (key === "accountant") return "Accountant";
+  if (key === "admin" || key === "approver") return "Approver";
+  if (key === "viewer") return "Viewer";
+  return role;
+}
+
 type Directory = {
   me: { id: string; name: string; email: string; role: string } | null;
   users: { id: string; name: string; role: string }[];
@@ -31,15 +39,25 @@ type Directory = {
   clientId: string;
 };
 
-const NAV = [
-  { href: "/transactions", label: "Bank", icon: ArrowLeftRight },
-  { href: "/statements", label: "Statements", icon: Upload },
-  { href: "/journals", label: "Ledger", icon: Landmark },
-  { href: "/vat201", label: "VAT", icon: Receipt },
-  { href: "/reconcile", label: "Reconcile", icon: Scale },
-  { href: "/close", label: "Close", icon: Lock },
-  { href: "/reports", label: "Reports", icon: FileSpreadsheet },
-  { href: "/ct", label: "Corporate tax", icon: Activity },
+const NAV_GROUPS: { title: string; items: { href: string; label: string; icon: typeof Upload }[] }[] = [
+  {
+    title: "Cash & ledger",
+    items: [
+      { href: "/transactions", label: "Bank", icon: ArrowLeftRight },
+      { href: "/statements", label: "Statements", icon: Upload },
+      { href: "/journals", label: "Ledger", icon: Landmark },
+      { href: "/reconcile", label: "Reconcile", icon: Scale },
+    ],
+  },
+  {
+    title: "Close & tax",
+    items: [
+      { href: "/close", label: "Close", icon: Lock },
+      { href: "/vat201", label: "VAT", icon: Receipt },
+      { href: "/reports", label: "Reports", icon: FileSpreadsheet },
+      { href: "/ct", label: "Corporate tax", icon: Activity },
+    ],
+  },
 ];
 
 function ShellInner({ children }: { children: React.ReactNode }) {
@@ -53,6 +71,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
 
   const isLogin = pathname === "/login";
   const isBooks = pathname.startsWith("/books");
+  const showGlobalSearch = isBooks;
 
   const booksClients = useMemo(() => {
     const all = directory?.clients || [];
@@ -60,6 +79,8 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   }, [directory?.clients]);
 
   const switcherClients = directory?.clients || [];
+  const activeClientName =
+    directory?.clients.find((c) => c.id === directory.clientId)?.name || "Company";
 
   useEffect(() => {
     if (isLogin) {
@@ -105,33 +126,42 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   }
 
   const nav = (
-    <nav className="flex flex-col gap-0.5 px-2">
-      {NAV.map((item) => {
-        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-        const Icon = item.icon;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={() => setMobileOpen(false)}
-            title={item.label}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-              active
-                ? "bg-primary-subtle text-primary"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              collapsed && "justify-center px-2",
-            )}
-          >
-            <Icon className="size-[18px] shrink-0" />
-            {collapsed ? <span className="sr-only">{item.label}</span> : item.label}
-          </Link>
-        );
-      })}
+    <nav className="flex flex-col gap-5 px-2">
+      {NAV_GROUPS.map((group) => (
+        <div key={group.title} className="space-y-1">
+          {!collapsed ? (
+            <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              {group.title}
+            </p>
+          ) : null}
+          {group.items.map((item) => {
+            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setMobileOpen(false)}
+                title={item.label}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                  active
+                    ? "bg-primary-subtle text-primary shadow-sm"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  collapsed && "justify-center px-2",
+                )}
+              >
+                <Icon className="size-[18px] shrink-0" />
+                {collapsed ? <span className="sr-only">{item.label}</span> : item.label}
+              </Link>
+            );
+          })}
+        </div>
+      ))}
     </nav>
   );
 
-  const firstName = directory?.me?.name?.split(/\s+/)[0];
+  const roleTitle = directory?.me ? roleLabel(directory.me.role) : "";
 
   if (isLogin) {
     return <>{children}</>;
@@ -159,32 +189,29 @@ function ShellInner({ children }: { children: React.ReactNode }) {
         <aside
           className={cn(
             "hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex",
-            collapsed ? "w-[72px]" : "w-64",
+            collapsed ? "w-[72px]" : "w-[260px]",
           )}
         >
           <div className={cn("flex items-center gap-2 px-4 py-5", collapsed && "justify-center px-2")}>
             <Link
               href="/journals"
-              className="text-lg font-semibold tracking-tight text-primary"
+              className="flex items-center gap-2 text-lg font-semibold tracking-tight text-primary"
               title={PRODUCT_NAME}
             >
-              {collapsed ? "a" : PRODUCT_NAME}
+              <span className="inline-flex size-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
+                a
+              </span>
+              {collapsed ? <span className="sr-only">{PRODUCT_NAME}</span> : PRODUCT_NAME}
             </Link>
-            {!collapsed ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="ml-auto"
-                onClick={() => setCollapsed(true)}
-                aria-label="Collapse navigation"
-              >
-                <PanelLeft className="size-4" />
-              </Button>
-            ) : (
-              <Button variant="ghost" size="icon-sm" onClick={() => setCollapsed(false)} aria-label="Expand navigation">
-                <PanelLeft className="size-4" />
-              </Button>
-            )}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={cn(!collapsed && "ml-auto")}
+              onClick={() => setCollapsed((v) => !v)}
+              aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+            >
+              <PanelLeft className="size-4" />
+            </Button>
           </div>
           <div className="flex-1 overflow-y-auto py-1">{nav}</div>
           <div className="mt-auto space-y-3 border-t border-sidebar-border p-3">
@@ -195,13 +222,13 @@ function ShellInner({ children }: { children: React.ReactNode }) {
               onSwitch={switchWorking}
             />
             {!collapsed && directory?.me ? (
-              <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-2 py-2 text-xs">
+              <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-2 py-2 text-xs">
                 <span className="inline-flex size-8 items-center justify-center rounded-full bg-primary-subtle font-medium text-primary">
-                  {directory.me.name.slice(0, 1)}
+                  {roleLabel(directory.me.role).slice(0, 1)}
                 </span>
                 <div className="min-w-0">
-                  <div className="truncate font-medium text-foreground">{directory.me.name}</div>
-                  <div className="truncate text-muted-foreground">{directory.me.role}</div>
+                  <div className="truncate font-medium text-foreground">{roleLabel(directory.me.role)}</div>
+                  <div className="truncate text-muted-foreground">Demo session</div>
                 </div>
               </div>
             ) : null}
@@ -217,12 +244,16 @@ function ShellInner({ children }: { children: React.ReactNode }) {
           </header>
 
           <header
-            className="hidden items-center gap-3 border-b border-border bg-card px-4 py-2.5 md:flex"
+            className="hidden items-center gap-3 border-b border-border bg-card/95 px-4 py-2.5 backdrop-blur md:flex"
             data-testid="app-top-bar"
           >
-            <p className="shrink-0 text-sm font-medium text-foreground">
-              Hi <span className="font-semibold">{firstName}</span>
-            </p>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-foreground">
+                <span className="font-semibold">{roleTitle}</span>
+                <span className="font-normal text-muted-foreground"> · demo</span>
+              </p>
+              <p className="truncate text-xs text-muted-foreground">{activeClientName}</p>
+            </div>
             {isBooks && periods.length > 0 ? (
               <select
                 className="h-8 shrink-0 rounded-md border border-border bg-background px-2 text-sm text-foreground"
@@ -238,22 +269,19 @@ function ShellInner({ children }: { children: React.ReactNode }) {
                 ))}
               </select>
             ) : null}
-            <div className="relative w-full max-w-[480px] flex-1">
-              <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="h-8 pl-8 text-sm"
-                placeholder="Search…"
-                value={globalSearch}
-                onChange={(e) => setGlobalSearch(e.target.value)}
-              />
-            </div>
-            <select
-              className="h-8 shrink-0 rounded-md border-0 bg-muted/60 px-2 text-sm text-foreground"
-              aria-label="Language"
-            >
-              <option>EN</option>
-              <option>AR</option>
-            </select>
+            {showGlobalSearch ? (
+              <div className="relative w-full max-w-[420px] flex-1">
+                <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="h-8 pl-8 text-sm"
+                  placeholder="Search ledger…"
+                  value={globalSearch}
+                  onChange={(e) => setGlobalSearch(e.target.value)}
+                />
+              </div>
+            ) : (
+              <div className="flex-1" />
+            )}
             <div className="ml-auto shrink-0">
               <SecurityBannerChip />
             </div>
@@ -261,7 +289,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
 
           <main
             key={`${directory?.me?.id || ""}:${directory?.clientId || ""}`}
-            className="min-w-0 flex-1 px-4 py-5 md:px-6 lg:px-8"
+            className="min-w-0 flex-1 px-4 py-6 md:px-6 lg:px-8"
           >
             {children}
           </main>
@@ -346,7 +374,7 @@ function WorkingAs({
         </select>
       </label>
       <label className="block text-xs font-medium text-muted-foreground">
-        Working as
+        Role
         <select
           className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm"
           value={directory.me.id}
@@ -358,7 +386,7 @@ function WorkingAs({
         >
           {directory.users.map((user) => (
             <option key={user.id} value={user.id}>
-              {user.name} · {user.role}
+              {roleLabel(user.role)}
             </option>
           ))}
         </select>

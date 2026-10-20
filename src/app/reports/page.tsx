@@ -94,7 +94,7 @@ export default function ReportsPage() {
       setError(payload.message || payload.error || "Prepare blocked — integrity gates failed.");
       return;
     }
-    setMessage(`Prepared STATEMENTS v${payload.version}. Switch to Layla to approve.`);
+    setMessage(`Prepared STATEMENTS v${payload.version}. Switch Role to Approver in the sidebar to approve.`);
     load();
   }
 
