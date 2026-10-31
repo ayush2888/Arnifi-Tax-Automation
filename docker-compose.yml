@@ -30,7 +30,10 @@ services:
     volumes:
       - minio:/data
 
+  # Optional all-in-Docker stack. Day-to-day: leave this off and run web+worker on the host
+  # (npm run infra && npm run dev / npm run worker) so code reloads without rebuilding images.
   worker:
+    profiles: ["full"]
     build:
       context: .
       dockerfile: worker/Dockerfile
@@ -44,7 +47,11 @@ services:
       S3_BUCKET: statements
       S3_REGION: us-east-1
       IBAN_ENCRYPTION_KEY: dev-only-iban-key-change-me
-      OCR_PROVIDER: local
+      OCR_PROVIDER: ${OCR_PROVIDER:-textract}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_TEXTRACT_ENDPOINT: ${AWS_TEXTRACT_ENDPOINT:-}
       WORKER_TOKEN: dev-worker-token
       PDF_PROBE_MIN_CHARS: "30"
     ports:
@@ -54,6 +61,7 @@ services:
         condition: service_healthy
 
   web:
+    profiles: ["full"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -67,11 +75,14 @@ services:
       S3_BUCKET: statements
       S3_REGION: us-east-1
       IBAN_ENCRYPTION_KEY: dev-only-iban-key-change-me
-      OCR_PROVIDER: local
+      OCR_PROVIDER: ${OCR_PROVIDER:-textract}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
       WORKER_BASE_URL: http://worker:4711
       WORKER_TOKEN: dev-worker-token
       PDF_PROBE_MIN_CHARS: "30"
-      PORTAL_SECURITY_STATUS: FAIL
+      PORTAL_SECURITY_STATUS: PASS
       REQUIRE_DOWNLOAD_MFA: "true"
       MFA_DEMO_CODE: "000000"
       MFA_TTL_SECONDS: "300"

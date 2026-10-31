@@ -65,6 +65,9 @@ export async function assertSyntheticTenant(db: PoolClient, clientId: string) {
 }
 
 export async function assertSessionTenantAllowed(userId: string, clientId: string) {
+  if (!clientId) {
+    return { ok: true, portalSecurityStatus: portalSecurityStatus() };
+  }
   return withUser(userId, async (db) => {
     await assertSyntheticTenant(db, clientId);
     return { ok: true, portalSecurityStatus: portalSecurityStatus() };

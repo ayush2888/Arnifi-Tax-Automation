@@ -57,7 +57,7 @@ def _actor_from_job(conn, job: dict) -> str:
     raise ValueError("actor_unresolved")
 
 
-def run_books_job(conn, job: dict) -> None:
+def run_books_job(conn, job: dict, storage=None) -> None:
     kind = job["kind"]
     try:
         actor = _actor_from_job(conn, job)
@@ -68,6 +68,12 @@ def run_books_job(conn, job: dict) -> None:
             _recurring_materialize(conn, job)
         elif kind == "auto_reverse":
             _auto_reverse(conn, job)
+        elif kind == "invoice_extract":
+            from daftar.invoice_extract import run_invoice_extract
+
+            if storage is None:
+                raise ValueError("storage_required")
+            run_invoice_extract(conn, storage, job)
         else:
             raise ValueError(f"unknown_books_job:{kind}")
         conn.execute(

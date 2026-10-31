@@ -1,19 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { VirtualItem } from "@tanstack/react-virtual";
 
-import { VirtualGrid, type VirtualGridHandle } from "./virtual-grid";
-
+import { PageHeader } from "@/components/page-header";
+import { StatusPill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { WINDOW, windowFor } from "@/lib/fetch-window";
 import { locate, type MonthBucket } from "@/lib/grid-layout";
 import { displayToMinor, formatMinor, MoneyTypeError } from "@/lib/money";
+import { cn } from "@/lib/utils";
 
 import { RecordDrawer } from "./drawer";
 import { DEFAULT_COLUMNS, EMPTY_FILTERS, type Category, type Column, type Filters, type Txn } from "./types";
+import { VirtualGrid, type VirtualGridHandle } from "./virtual-grid";
 
 type Meta = { all: number; needsReview: number; unclassified: number; months: MonthBucket[] };
 
@@ -22,9 +25,14 @@ export function Workspace() {
   const pathname = usePathname();
   const search = useSearchParams();
   const record = search.get("record");
+  const tabFromUrl = search.get("tab");
+  const initialTab =
+    tabFromUrl === "needs_review" || tabFromUrl === "unclassified" || tabFromUrl === "all"
+      ? tabFromUrl
+      : EMPTY_FILTERS.tab;
   const gridRef = useRef<VirtualGridHandle>(null);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<Filters>({ ...EMPTY_FILTERS, tab: initialTab });
+  const [draft, setDraft] = useState<Filters>({ ...EMPTY_FILTERS, tab: initialTab });
   const [columns, setColumns] = useState<Column[]>(DEFAULT_COLUMNS);
   const [categories, setCategories] = useState<Category[]>([]);
   const [canWrite, setCanWrite] = useState(true);
@@ -39,6 +47,7 @@ export function Workspace() {
   const [views, setViews] = useState<{ id: string; name: string; config: unknown }[]>([]);
   const [viewName, setViewName] = useState("");
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [revision, setRevision] = useState(0);
   const inflight = useRef(new Set<number>());
 
@@ -51,6 +60,9 @@ export function Workspace() {
   const slotCount = months ? total + months.length : total;
 
   const queryString = useMemo(() => buildQuery(filters), [filters]);
+  const advancedActive = Boolean(
+    draft.dateFrom || draft.dateTo || draft.amountMin || draft.amountMax || draft.categoryId || draft.flag,
+  );
 
   const ensureWindow = useCallback(
     async (offset: number) => {
@@ -149,6 +161,29 @@ export function Workspace() {
     }
   }
 
+  function clearAdvanced() {
+    const cleared = {
+      ...draft,
+      dateFrom: "",
+      dateTo: "",
+      amountMin: "",
+      amountMax: "",
+      categoryId: "",
+      flag: "",
+    };
+    setDraft(cleared);
+    setFilters({
+      ...filters,
+      dateFrom: "",
+      dateTo: "",
+      amountMin: "",
+      amountMax: "",
+      categoryId: "",
+      flag: "",
+      q: draft.q,
+    });
+  }
+
   async function exportCsv() {
     const response = await fetch(`/api/transactions/export?${queryString}`);
     if (!response.ok) {
@@ -196,7 +231,15 @@ export function Workspace() {
 
   function applyView(config: unknown) {
     const saved = config as { columns?: Column[]; filters?: Filters };
-    if (saved.columns) setColumns(saved.columns);
+    if (saved.columns?.length) {
+      const byId = new Map(saved.columns.map((column) => [column.id, column]));
+      // Keep the checkbox column even if an older saved view omitted it.
+      const merged = DEFAULT_COLUMNS.map((column) => byId.get(column.id) ?? column);
+      for (const column of saved.columns) {
+        if (!merged.some((item) => item.id === column.id)) merged.push(column);
+      }
+      setColumns(merged);
+    }
     if (saved.filters) {
       setFilters(saved.filters);
       setDraft(saved.filters);
@@ -236,157 +279,351 @@ export function Workspace() {
     };
   }, [pages, record]);
 
+  const pageIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const offset of Object.keys(pages).map(Number).sort((a, b) => a - b)) {
+      for (const row of pages[offset] || []) ids.push(row.id);
+    }
+    return ids;
+  }, [pages]);
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-heading text-3xl tracking-tight">Transactions</h1>
-          <p className="text-sm text-muted-foreground">Classification and match stay separate. Match is unused in this phase.</p>
-        </div>
-        <Button variant="outline" onClick={exportCsv}>Export CSV</Button>
-      </header>
+    <div className="space-y-5">
+      <PageHeader
+        title="Transactions"
+        description={
+          <>
+            Lines from{" "}
+            <Link href="/statements" className="font-medium text-primary hover:underline">
+              Bank statements
+            </Link>{" "}
+            you uploaded. Categorise here; matching to journals is on Reconcile.
+          </>
+        }
+        actions={
+          <Button variant="outline" className="ab-soft-btn border-0 bg-white/70" onClick={exportCsv}>
+            Export CSV
+          </Button>
+        }
+      />
+
       {meta && meta.needsReview > 0 ? (
-        <p className="rounded-lg border border-warn bg-warn/10 px-3 py-2 text-sm text-warn">
-          {meta.needsReview} rows need review. Flags are kept on the row; nothing is rewritten.
+        <p className="rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
+          {meta.needsReview} rows need review. Flags stay on the row; nothing is rewritten.
         </p>
       ) : null}
-      <div className="flex flex-wrap gap-2">
-        {[
-          ["all", `All ${meta ? meta.all : ""}`],
-          ["needs_review", `Needs review ${meta ? meta.needsReview : ""}`],
-          ["unclassified", `Unclassified ${meta ? meta.unclassified : ""}`],
-        ].map(([id, label]) => (
-          <Button key={id} size="sm" variant={filters.tab === id ? "default" : "outline"} onClick={() => setFilters({ ...filters, tab: id })}>
-            {label}
-          </Button>
-        ))}
-      </div>
-      <div className="grid gap-2 md:grid-cols-6">
-        <Input placeholder="Search description or reference" value={draft.q} onChange={(event) => setDraft({ ...draft, q: event.target.value })} />
-        <Input type="date" value={draft.dateFrom} onChange={(event) => setDraft({ ...draft, dateFrom: event.target.value })} aria-label="From date" />
-        <Input type="date" value={draft.dateTo} onChange={(event) => setDraft({ ...draft, dateTo: event.target.value })} aria-label="To date" />
-        <Input placeholder="Min amount" value={draft.amountMin} onChange={(event) => setDraft({ ...draft, amountMin: event.target.value })} />
-        <Input placeholder="Max amount" value={draft.amountMax} onChange={(event) => setDraft({ ...draft, amountMax: event.target.value })} />
-        <select className="h-8 rounded-lg border border-input bg-card px-2 text-sm" value={draft.categoryId} onChange={(event) => setDraft({ ...draft, categoryId: event.target.value })} aria-label="Category filter">
-          <option value="">Any category</option>
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>{category.name}</option>
-          ))}
-        </select>
-        <Input placeholder="Flag" value={draft.flag} onChange={(event) => setDraft({ ...draft, flag: event.target.value })} />
-        <Button size="sm" onClick={applyFilters}>Apply filters</Button>
-        <Button size="sm" variant={filters.groupByMonth ? "default" : "outline"} onClick={() => setFilters({ ...filters, groupByMonth: !filters.groupByMonth })}>
-          Group by month
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => setColumnsOpen((value) => !value)}>Columns</Button>
-      </div>
-      {columnsOpen ? (
-        <div className="flex flex-wrap gap-3 rounded-lg border border-border bg-card p-3 text-sm">
-          {columns.map((column, index) => (
-            <label key={column.id} className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={column.visible}
-                disabled={column.id === "reference"}
-                onChange={(event) => {
-                  const next = columns.slice();
-                  next[index] = { ...column, visible: event.target.checked };
-                  setColumns(next);
-                }}
-              />
-              {column.label}
-              <button type="button" className="text-xs text-muted-foreground" onClick={() => moveColumn(index, -1)} aria-label={`Move ${column.label} earlier`}>←</button>
-              <button type="button" className="text-xs text-muted-foreground" onClick={() => moveColumn(index, 1)} aria-label={`Move ${column.label} later`}>→</button>
-            </label>
-          ))}
-          <div className="flex w-full gap-2">
-            <Input placeholder="Name this view" value={viewName} onChange={(event) => setViewName(event.target.value)} />
-            <Button size="sm" variant="outline" onClick={saveView}>Save view</Button>
-            {views.map((view) => (
-              <Button key={view.id} size="sm" variant="ghost" onClick={() => applyView(view.config)}>{view.name}</Button>
+
+      <section className="ab-panel overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap gap-1.5">
+            {(
+              [
+                ["all", "All", meta?.all],
+                ["needs_review", "Needs review", meta?.needsReview],
+                ["unclassified", "Unclassified", meta?.unclassified],
+              ] as const
+            ).map(([id, label, count]) => (
+              <button
+                key={id}
+                type="button"
+                className={cn("ab-chip", filters.tab === id && "ab-chip-active")}
+                onClick={() => setFilters({ ...filters, tab: id })}
+              >
+                {label}
+                {typeof count === "number" ? (
+                  <span className="ml-1 tabular-nums opacity-80">{count}</span>
+                ) : null}
+              </button>
             ))}
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              className="h-9 w-full min-w-[12rem] sm:w-64"
+              placeholder="Search description or reference"
+              value={draft.q}
+              onChange={(event) => setDraft({ ...draft, q: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") applyFilters();
+              }}
+            />
+            <Button size="sm" variant="outline" onClick={applyFilters}>
+              Search
+            </Button>
+            <Button
+              size="sm"
+              variant={filtersOpen || advancedActive ? "default" : "outline"}
+              onClick={() => setFiltersOpen((value) => !value)}
+            >
+              Filters{advancedActive ? " · on" : ""}
+            </Button>
+            <Button
+              size="sm"
+              variant={filters.groupByMonth ? "default" : "outline"}
+              onClick={() => setFilters({ ...filters, groupByMonth: !filters.groupByMonth })}
+            >
+              By month
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setColumnsOpen((value) => !value)}>
+              Columns
+            </Button>
+          </div>
         </div>
-      ) : null}
-      {canWrite && selected.size > 0 ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
-          <span>{selected.size} selected</span>
-          <select className="h-8 rounded-lg border border-input bg-card px-2" value={bulkCategory} onChange={(event) => setBulkCategory(event.target.value)} aria-label="Bulk category">
-            <option value="">Choose a category</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>{category.name}</option>
-            ))}
-          </select>
-          <Button size="sm" onClick={() => bulk(false)}>Categorise selected</Button>
-          <Button size="sm" variant="outline" onClick={() => bulk(true)}>Categorise all matching</Button>
-        </div>
-      ) : null}
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
-      {loading ? <p className="text-sm text-muted-foreground">Loading transactions…</p> : null}
-      {!loading && total === 0 ? (
-        <p className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
-          No transactions match. Upload a statement, or switch client if this book is empty.
-        </p>
-      ) : null}
-      {total > 0 ? (
-        <VirtualGrid
-          ref={gridRef}
-          count={slotCount}
-          estimateSize={(index) => (months && locate(index, total, months).type === "header" ? 28 : 36)}
-          onVirtualItems={setVirtualItems}
-          onKeyDown={onKeyDown}
-          width={tableWidth}
-          header={
-            <div className="sticky top-0 z-30 flex border-b border-border bg-muted text-xs uppercase tracking-wide text-muted-foreground" style={{ width: tableWidth, minWidth: "100%" }}>
-              {visible.map((column) => (
-                <div key={column.id} className="relative shrink-0 px-2 py-2" style={{ width: column.width }}>
-                  <button type="button" className="font-medium" onClick={() => toggleSort(column.id)}>
+
+        {filtersOpen ? (
+          <div className="grid gap-2 border-b border-border bg-muted/20 px-4 py-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+            <Input
+              type="date"
+              value={draft.dateFrom}
+              onChange={(event) => setDraft({ ...draft, dateFrom: event.target.value })}
+              aria-label="From date"
+            />
+            <Input
+              type="date"
+              value={draft.dateTo}
+              onChange={(event) => setDraft({ ...draft, dateTo: event.target.value })}
+              aria-label="To date"
+            />
+            <Input
+              placeholder="Min amount"
+              value={draft.amountMin}
+              onChange={(event) => setDraft({ ...draft, amountMin: event.target.value })}
+            />
+            <Input
+              placeholder="Max amount"
+              value={draft.amountMax}
+              onChange={(event) => setDraft({ ...draft, amountMax: event.target.value })}
+            />
+            <select
+              className="h-9 rounded-lg border border-input bg-card px-2 text-sm"
+              value={draft.categoryId}
+              onChange={(event) => setDraft({ ...draft, categoryId: event.target.value })}
+              aria-label="Category filter"
+            >
+              <option value="">Any category</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+            <Input
+              placeholder="Flag"
+              value={draft.flag}
+              onChange={(event) => setDraft({ ...draft, flag: event.target.value })}
+            />
+            <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-4 xl:col-span-6">
+              <Button size="sm" onClick={applyFilters}>
+                Apply filters
+              </Button>
+              <Button size="sm" variant="ghost" onClick={clearAdvanced}>
+                Clear
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {columnsOpen ? (
+          <div className="flex flex-wrap gap-3 border-b border-border bg-muted/20 px-4 py-3 text-sm">
+            {columns
+              .filter((column) => column.id !== "select")
+              .map((column) => {
+                const index = columns.findIndex((c) => c.id === column.id);
+                return (
+                  <label key={column.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={column.visible}
+                      disabled={column.id === "reference"}
+                      onChange={(event) => {
+                        const next = columns.slice();
+                        next[index] = { ...column, visible: event.target.checked };
+                        setColumns(next);
+                      }}
+                    />
                     {column.label}
-                    {sortKey(column.id) === filters.sort ? (filters.dir === "asc" ? " ↑" : " ↓") : ""}
-                  </button>
-                  <span
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label={`Resize ${column.label}`}
-                    className="absolute top-0 right-0 h-full w-1 cursor-col-resize"
-                    onPointerDown={(event) => startResize(event, column.id)}
-                  />
-                </div>
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground"
+                      onClick={() => moveColumn(index, -1)}
+                      aria-label={`Move ${column.label} earlier`}
+                    >
+                      ←
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground"
+                      onClick={() => moveColumn(index, 1)}
+                      aria-label={`Move ${column.label} later`}
+                    >
+                      →
+                    </button>
+                  </label>
+                );
+              })}
+            <div className="flex w-full flex-wrap gap-2">
+              <Input
+                placeholder="Name this view"
+                value={viewName}
+                onChange={(event) => setViewName(event.target.value)}
+              />
+              <Button size="sm" variant="outline" onClick={saveView}>
+                Save view
+              </Button>
+              {views.map((view) => (
+                <Button key={view.id} size="sm" variant="ghost" onClick={() => applyView(view.config)}>
+                  {view.name}
+                </Button>
               ))}
             </div>
-          }
-          renderItem={(item) => {
-            const slot = locate(item.index, total, months);
-            if (slot.type === "header") {
-              return (
-                <div className="flex items-center bg-secondary px-2 text-xs font-medium" style={{ height: item.size, width: tableWidth }}>
-                  {slot.month}
-                </div>
-              );
-            }
-            const row = rowAt(slot.rowIndex);
-            return (
+          </div>
+        ) : null}
+
+        {canWrite && selected.size > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-primary-subtle/40 px-4 py-2.5 text-sm">
+            <span className="font-medium">{selected.size} selected</span>
+            <select
+              className="h-8 rounded-lg border border-input bg-card px-2"
+              value={bulkCategory}
+              onChange={(event) => setBulkCategory(event.target.value)}
+              aria-label="Bulk category"
+            >
+              <option value="">Choose a category</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+            <Button size="sm" onClick={() => bulk(false)}>
+              Categorise selected
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => bulk(true)}>
+              Categorise all matching
+            </Button>
+          </div>
+        ) : null}
+
+        {error ? <p className="px-4 py-2 text-sm text-danger">{error}</p> : null}
+        {loading ? <p className="px-4 py-8 text-sm text-muted-foreground">Loading transactions…</p> : null}
+        {!loading && total === 0 ? (
+          <div className="px-4 py-10 text-center">
+            <p className="text-sm font-medium text-foreground">No transactions match.</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Upload a statement on{" "}
+              <Link href="/statements" className="font-medium text-primary hover:underline">
+                Bank statements
+              </Link>
+              , or switch company if this book is empty.
+            </p>
+          </div>
+        ) : null}
+
+        {total > 0 ? (
+          <VirtualGrid
+            ref={gridRef}
+            count={slotCount}
+            estimateSize={(index) => (months && locate(index, total, months).type === "header" ? 32 : 42)}
+            onVirtualItems={setVirtualItems}
+            onKeyDown={onKeyDown}
+            width={tableWidth}
+            header={
               <div
-                data-reference={row?.reference || ""}
-                data-row-no={row ? String(row.rowNo) : ""}
-                data-txn-id={row?.id || ""}
-                className={`flex border-b border-border text-sm ${active === slot.rowIndex ? "bg-muted" : ""}`}
-                style={{ height: item.size, width: tableWidth }}
+                className="sticky top-0 z-30 flex border-b border-border bg-muted/50 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                style={{ width: tableWidth, minWidth: "100%" }}
               >
-                {row ? visible.map((column) => (
+                {visible.map((column) => (
                   <div
                     key={column.id}
-                    className={`shrink-0 truncate px-2 py-1.5 ${column.align === "right" ? "nums text-right" : ""} ${column.id === "reference" ? "sticky left-0 z-20 bg-card" : ""}`}
+                    className={cn(
+                      "relative shrink-0 px-3 py-2.5",
+                      column.align === "right" && "text-right",
+                      column.id === "select" && "px-2",
+                    )}
                     style={{ width: column.width }}
                   >
-                    {renderCell(column.id, row)}
+                    {column.id === "select" ? (
+                      <input
+                        type="checkbox"
+                        aria-label="Select all loaded rows"
+                        checked={allPageSelected}
+                        onChange={(event) => {
+                          const next = new Set(selected);
+                          if (event.target.checked) pageIds.forEach((id) => next.add(id));
+                          else pageIds.forEach((id) => next.delete(id));
+                          setSelected(next);
+                        }}
+                      />
+                    ) : (
+                      <button type="button" className="font-medium" onClick={() => toggleSort(column.id)}>
+                        {column.label}
+                        {sortKey(column.id) === filters.sort ? (filters.dir === "asc" ? " ↑" : " ↓") : ""}
+                      </button>
+                    )}
+                    {column.id !== "select" ? (
+                      <span
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label={`Resize ${column.label}`}
+                        className="absolute top-0 right-0 h-full w-1 cursor-col-resize"
+                        onPointerDown={(event) => startResize(event, column.id)}
+                      />
+                    ) : null}
                   </div>
-                )) : <span className="px-2 text-muted-foreground">Loading…</span>}
+                ))}
               </div>
-            );
-          }}
-        />
-      ) : null}
+            }
+            renderItem={(item) => {
+              const slot = locate(item.index, total, months);
+              if (slot.type === "header") {
+                return (
+                  <div
+                    className="flex items-center bg-secondary/80 px-3 text-xs font-semibold text-secondary-foreground"
+                    style={{ height: item.size, width: tableWidth }}
+                  >
+                    {slot.month}
+                  </div>
+                );
+              }
+              const row = rowAt(slot.rowIndex);
+              const isActive = active === slot.rowIndex;
+              const isOpen = row && record === row.id;
+              return (
+                <div
+                  data-reference={row?.reference || ""}
+                  data-row-no={row ? String(row.rowNo) : ""}
+                  data-txn-id={row?.id || ""}
+                  className={cn(
+                    "flex border-b border-border/70 text-sm transition-colors",
+                    isActive || isOpen ? "bg-primary-subtle/50" : "hover:bg-muted/40",
+                  )}
+                  style={{ height: item.size, width: tableWidth }}
+                >
+                  {row ? (
+                    visible.map((column) => (
+                      <div
+                        key={column.id}
+                        className={cn(
+                          "flex shrink-0 items-center truncate px-3 py-2",
+                          column.align === "right" && "justify-end tabular-nums",
+                          column.id === "select" && "px-2",
+                          column.id === "reference" && "sticky left-0 z-10 bg-inherit",
+                        )}
+                        style={{ width: column.width }}
+                      >
+                        {renderCell(column.id, row)}
+                      </div>
+                    ))
+                  ) : (
+                    <span className="px-3 text-muted-foreground">Loading…</span>
+                  )}
+                </div>
+              );
+            }}
+          />
+        ) : null}
+      </section>
+
       {record ? (
         <RecordDrawer
           id={record}
@@ -404,36 +641,74 @@ export function Workspace() {
   );
 
   function renderCell(id: Column["id"], row: Txn) {
+    if (id === "select") {
+      return (
+        <input
+          type="checkbox"
+          aria-label={`Select ${row.reference || row.rowNo}`}
+          checked={selected.has(row.id)}
+          onChange={(event) => {
+            const next = new Set(selected);
+            if (event.target.checked) next.add(row.id);
+            else next.delete(row.id);
+            setSelected(next);
+          }}
+        />
+      );
+    }
     if (id === "reference") {
       return (
-        <span className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            aria-label={`Select ${row.reference || row.rowNo}`}
-            checked={selected.has(row.id)}
-            onChange={(event) => {
-              const next = new Set(selected);
-              if (event.target.checked) next.add(row.id);
-              else next.delete(row.id);
-              setSelected(next);
-            }}
-          />
-          <button type="button" className="truncate font-medium text-primary underline-offset-2 hover:underline" onClick={() => openRecord(row.id)}>
-            {row.reference || `Row ${row.rowNo}`}
-          </button>
+        <button
+          type="button"
+          className="truncate font-medium text-foreground underline-offset-2 hover:text-primary hover:underline"
+          onClick={() => openRecord(row.id)}
+        >
+          {row.reference || `Row ${row.rowNo}`}
+        </button>
+      );
+    }
+    if (id === "date") {
+      return <span className="tabular-nums text-muted-foreground">{formatDate(row.txnDate)}</span>;
+    }
+    if (id === "account") {
+      return (
+        <span className="inline-flex max-w-full items-center gap-1.5 truncate">
+          <span className="truncate font-medium text-foreground">{row.accountLabel || "—"}</span>
+          {row.currency ? (
+            <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {row.currency}
+            </span>
+          ) : null}
         </span>
       );
     }
-    if (id === "date") return row.txnDate || "";
-    if (id === "description") return <span dir="auto">{row.descriptionClean || row.descriptionRaw}</span>;
-    if (id === "counterparty") return <span dir="auto">{row.counterparty || ""}</span>;
+    if (id === "currency") return row.currency || "AED";
+    if (id === "description") {
+      const text = row.descriptionClean || row.descriptionRaw;
+      return (
+        <span className="truncate text-foreground" dir="auto" title={text}>
+          {text}
+        </span>
+      );
+    }
+    if (id === "counterparty") {
+      return (
+        <span dir="auto" className="truncate">
+          {row.counterparty || ""}
+        </span>
+      );
+    }
     if (id === "debit") return <Amount minor={row.debitMinor} />;
     if (id === "credit") return <Amount minor={row.creditMinor} />;
-    if (id === "balance") return <Amount minor={row.balanceMinor} />;
+    if (id === "balance") return <Amount minor={row.balanceMinor} mutedEmpty />;
     if (id === "category") {
       return (
         <select
-          className="h-7 w-full truncate bg-transparent text-sm"
+          className={cn(
+            "h-8 w-full truncate rounded-md border border-transparent bg-transparent px-1 text-sm",
+            "hover:border-input focus:border-input focus:bg-card",
+            !row.categoryId && "text-muted-foreground",
+          )}
           value={row.categoryId || ""}
           disabled={!canWrite}
           aria-label="Category"
@@ -445,19 +720,29 @@ export function Workspace() {
             }).then(() => setRevision((value) => value + 1));
           }}
         >
-          <option value="">—</option>
+          <option value="">Uncategorised</option>
           {categories.map((category) => (
-            <option key={category.id} value={category.id}>{category.name}</option>
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
           ))}
         </select>
       );
     }
-    if (id === "classification") return row.classStatus;
+    if (id === "classification") {
+      const tone =
+        row.classStatus === "classified" ? "ok" : row.classStatus === "unclassified" ? "warn" : "neutral";
+      return <StatusPill tone={tone}>{row.classStatus.replaceAll("_", " ")}</StatusPill>;
+    }
     if (id === "review") return row.reviewStatus.replaceAll("_", " ");
     if (id === "match") return "Unmatched";
     if (id === "flags") return row.flags.join(", ");
     if (id === "confidence") return row.confidence == null ? "" : `${Math.round(row.confidence * 100)}%`;
-    return row.statementLabel;
+    return (
+      <span className="truncate text-muted-foreground" title={row.statementLabel}>
+        {row.statementLabel}
+      </span>
+    );
   }
 
   function toggleSort(id: Column["id"]) {
@@ -492,10 +777,18 @@ export function Workspace() {
   }
 }
 
-function Amount({ minor }: { minor: number | null }) {
+function Amount({ minor, mutedEmpty }: { minor: number | null; mutedEmpty?: boolean }) {
   const text = formatMinor(minor);
-  if (!text) return null;
-  return <span className={text.startsWith("-") ? "text-danger" : ""}>{text}</span>;
+  if (!text) {
+    return mutedEmpty ? <span className="text-muted-foreground/50">—</span> : null;
+  }
+  return <span className={cn("tabular-nums", text.startsWith("-") && "text-danger")}>{text}</span>;
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "";
+  // Keep ISO YYYY-MM-DD — accountants sort/scan this reliably.
+  return value.slice(0, 10);
 }
 
 function sortKey(id: Column["id"]) {

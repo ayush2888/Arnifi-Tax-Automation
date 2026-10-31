@@ -4,6 +4,7 @@ import type { PoolClient } from "pg";
 
 import { withUser } from "@/lib/db";
 import { LedgerError } from "@/server/errors";
+import { enqueueInvoiceExtract } from "@/server/invoices";
 import { assertSyntheticTenant } from "@/server/security-gate";
 
 export type InboxRow = {
@@ -228,10 +229,38 @@ export async function routeInboxItem(
     );
     if (!period.rowCount) throw new LedgerError("period_not_found", "not_found");
 
+    const docType = body.docType || row.detected_doc_type || "OTHER";
+
+    const existing = await db.query(
+      `SELECT d.id, d.period_id, p.label FROM documents d
+       JOIN accounting_periods p ON p.id = d.period_id
+       WHERE d.client_id = $1 AND d.file_id = $2 AND d.status <> 'rejected'
+       LIMIT 1`,
+      [body.clientId, row.file_id],
+    );
+    if (existing.rowCount) {
+      const dup = existing.rows[0];
+      await db.query(
+        `UPDATE document_inbox
+         SET routing_status = 'routed', detected_client_id = $2, detected_period_id = $3,
+             routed_document_id = $4, updated_at = now()
+         WHERE id = $1`,
+        [inboxId, body.clientId, dup.period_id, dup.id],
+      );
+      return {
+        inboxId,
+        documentId: String(dup.id),
+        clientId: body.clientId,
+        periodId: String(dup.period_id),
+        docType,
+        duplicate: true,
+        duplicatePeriodLabel: String(dup.label),
+      };
+    }
+
     await db.query(`UPDATE files SET client_id = $1 WHERE id = $2`, [body.clientId, row.file_id]);
 
     const documentId = randomUUID();
-    const docType = body.docType || row.detected_doc_type || "OTHER";
     await db.query(
       `INSERT INTO documents (
          id, client_id, period_id, file_id, doc_type, original_name, status, created_by,
@@ -269,7 +298,16 @@ export async function routeInboxItem(
       [body.clientId, body.periodId],
     );
 
-    return { inboxId, documentId, clientId: body.clientId, periodId: body.periodId, docType };
+    if (docType === "SALES_INVOICE" || docType === "PURCHASE_INVOICE") {
+      await enqueueInvoiceExtract(db, body.clientId, documentId, userId);
+    }
+    await db.query(
+      `INSERT INTO audit_log (firm_id, client_id, entity, entity_id, action, actor, diff)
+       SELECT firm_id, $2, 'document', $3, 'upload', $1, $4::jsonb FROM users WHERE id = $1`,
+      [userId, body.clientId, documentId, JSON.stringify({ name: row.original_name, docType, periodId: body.periodId })],
+    );
+
+    return { inboxId, documentId, clientId: body.clientId, periodId: body.periodId, docType, duplicate: false };
   });
 }
 

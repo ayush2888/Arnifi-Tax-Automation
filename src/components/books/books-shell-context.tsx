@@ -1,8 +1,10 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-export type BooksPeriod = { id: string; label: string; status: string };
+import { pickDefaultPeriodId } from "@/lib/period-default";
+
+export type BooksPeriod = { id: string; label: string; status: string; periodStart?: string; periodEnd?: string };
 
 type BooksShellContextValue = {
   periods: BooksPeriod[];
@@ -10,6 +12,8 @@ type BooksShellContextValue = {
   setPeriodId: (id: string) => void;
   globalSearch: string;
   setGlobalSearch: (q: string) => void;
+  reloadPeriods: () => void;
+  clientId: string;
 };
 
 const BooksShellContext = createContext<BooksShellContextValue | null>(null);
@@ -18,27 +22,67 @@ export function BooksShellProvider({ children }: { children: ReactNode }) {
   const [periods, setPeriods] = useState<BooksPeriod[]>([]);
   const [periodId, setPeriodId] = useState("");
   const [globalSearch, setGlobalSearch] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    fetch("/api/books/periods")
+    let cancelled = false;
+    fetch("/api/session")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((book) => {
+        if (cancelled || !book) return;
+        const nextClient = String(book.clientId || "");
+        setClientId((prev) => {
+          if (nextClient && nextClient !== prev) {
+            setPeriodId("");
+            return nextClient;
+          }
+          return prev || nextClient;
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [tick]);
+
+  useEffect(() => {
+    if (!clientId) {
+      setPeriods([]);
+      setPeriodId("");
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/periods")
       .then(async (r) => {
         if (!r.ok) return;
         const list = await r.json();
-        if (!Array.isArray(list)) return;
+        if (cancelled || !Array.isArray(list)) return;
         setPeriods(list);
-        if (!periodId && list.length) {
-          const jun = list.find((p: BooksPeriod) => /Jun\s*2026/i.test(p.label));
-          const open = list.find((p: BooksPeriod) => p.status === "OPEN" || p.status === "REOPENED");
-          setPeriodId(jun?.id || open?.id || list[0].id);
-        }
+        setPeriodId((current) => {
+          if (current && list.some((p: BooksPeriod) => p.id === current)) return current;
+          return pickDefaultPeriodId(list);
+        });
       })
       .catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, tick]);
+
+  const reloadPeriods = useCallback(() => setTick((n) => n + 1), []);
 
   const value = useMemo(
-    () => ({ periods, periodId, setPeriodId, globalSearch, setGlobalSearch }),
-    [periods, periodId, globalSearch],
+    () => ({
+      periods,
+      periodId,
+      setPeriodId,
+      globalSearch,
+      setGlobalSearch,
+      reloadPeriods,
+      clientId,
+    }),
+    [periods, periodId, globalSearch, reloadPeriods, clientId],
   );
 
   return <BooksShellContext.Provider value={value}>{children}</BooksShellContext.Provider>;
@@ -53,6 +97,8 @@ export function useBooksShell() {
       setPeriodId: () => undefined,
       globalSearch: "",
       setGlobalSearch: () => undefined,
+      reloadPeriods: () => undefined,
+      clientId: "",
     };
   }
   return ctx;

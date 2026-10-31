@@ -66,14 +66,61 @@ class Extraction:
 
 OPENING_RE = re.compile(r"opening(?:\s+balance)?\s*[:|,]?\s*([-(]?\d[\d.,]*\)?)", re.I)
 CLOSING_RE = re.compile(r"closing(?:\s+balance)?\s*[:|,]?\s*([-(]?\d[\d.,]*\)?)", re.I)
+# Numeric ISO / DMY ranges, optionally prefixed with "Period".
 PERIOD_RE = re.compile(
-    r"period\s*[:|,]?\s*(\d{4}-\d{2}-\d{2}|\d{2}[/-]\d{2}[/-]\d{4})\s*(?:to|-)\s*(\d{4}-\d{2}-\d{2}|\d{2}[/-]\d{2}[/-]\d{4})",
+    r"(?:period\s*[:|,]?\s*)?"
+    r"(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})"
+    r"\s*(?:to|-|–|—)\s*"
+    r"(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
     re.I,
 )
-CURRENCY_RE = re.compile(r"currency\s*[:|,]\s*([A-Za-z]{3})", re.I)
+# Month-name ranges e.g. "Aug 1, 2026 - Aug 31, 2026" (common in bank PDF filenames).
+PERIOD_MONTH_RE = re.compile(
+    r"(?:period\s*[:|,]?\s*)?"
+    r"("
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|"
+    r"Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"\s+\d{1,2},?\s+\d{4}"
+    r"|"
+    r"\d{1,2}\s+"
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|"
+    r"Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r",?\s+\d{4}"
+    r")"
+    r"\s*(?:to|-|–|—)\s*"
+    r"("
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|"
+    r"Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"\s+\d{1,2},?\s+\d{4}"
+    r"|"
+    r"\d{1,2}\s+"
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|"
+    r"Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r",?\s+\d{4}"
+    r")",
+    re.I,
+)
+CURRENCY_RE = re.compile(r"currency\s*[:|,\n\r]+\s*([A-Za-z]{3})\b", re.I)
+PAGE_CURRENCY_RE = re.compile(r"(?:^|\n)\s*currency\s*[:|,\n\r]+\s*([A-Za-z]{3})\b", re.I)
+
+_MONTH_NAME_FMTS = (
+    "%b %d %Y",
+    "%B %d %Y",
+    "%d %b %Y",
+    "%d %B %Y",
+    "%b %d, %Y",
+    "%B %d, %Y",
+    "%d %b, %Y",
+    "%d %B, %Y",
+)
 
 
-def extract_file(content: bytes, kind: str, password: str | None = None) -> Extraction:
+def extract_file(
+    content: bytes,
+    kind: str,
+    password: str | None = None,
+    preferred_currency: str | None = None,
+) -> Extraction:
     if kind == "csv":
         return _extract_csv(content)
     if kind == "xlsx":
@@ -81,7 +128,7 @@ def extract_file(content: bytes, kind: str, password: str | None = None) -> Extr
     if kind == "xls":
         return _extract_xls(content)
     if kind == "pdf":
-        return _extract_pdf(content, password)
+        return _extract_pdf(content, password, preferred_currency=preferred_currency)
     if kind == "image":
         return _extract_image(content)
     raise CodedError("unsupported_type")
@@ -196,7 +243,7 @@ def _finish_tabular(headers, rows, meta, encoding, kind) -> Extraction:
     )
 
 
-def _extract_pdf(content: bytes, password: str | None) -> Extraction:
+def _extract_pdf(content: bytes, password: str | None, preferred_currency: str | None = None) -> Extraction:
     document = fitz.open(stream=content, filetype="pdf")
     try:
         if document.needs_pass:
@@ -206,10 +253,14 @@ def _extract_pdf(content: bytes, password: str | None) -> Extraction:
                 raise CodedError("bad_password")
         extraction = Extraction(headers=[], rows=[], page_count=document.page_count, kind="pdf")
         meta_text = []
+        page_currency: dict[int, str] = {}
         next_row = 1
         for index, page in enumerate(document, start=1):
             text = page.get_text("text") or ""
             meta_text.append(text)
+            cur_match = PAGE_CURRENCY_RE.search(text)
+            if cur_match:
+                page_currency[index] = cur_match.group(1).upper()
             if _page_has_text(text):
                 words = page.get_text("words") or []
                 zoom = 1400 / max(page.rect.width, 1)
@@ -234,6 +285,9 @@ def _extract_pdf(content: bytes, password: str | None) -> Extraction:
                 image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
                 headers, rows, png, width, height, ocr_text = _ocr_image(image, index)
                 meta_text.append(ocr_text)
+                cur_match = PAGE_CURRENCY_RE.search(ocr_text)
+                if cur_match:
+                    page_currency[index] = cur_match.group(1).upper()
                 for row in rows:
                     row.row_no = next_row
                     next_row += 1
@@ -243,7 +297,19 @@ def _extract_pdf(content: bytes, password: str | None) -> Extraction:
                 extraction.pages.append(PageImage(index, png, width, height))
                 extraction.methods.append((index, "ocr"))
         meta = _metadata_from_free_text("\n".join(meta_text))
+        # Prefer the bank-account currency when the PDF holds several accounts (Wio).
+        target_currency = (preferred_currency or meta.get("currency") or "AED").upper()
+        section_meta = _balances_for_currency("\n".join(meta_text), target_currency)
+        meta.update({k: v for k, v in section_meta.items() if v})
+        meta["currency"] = target_currency
         _apply_meta(extraction, meta)
+        if page_currency:
+            keep = {page for page, code in page_currency.items() if code == target_currency}
+            # Pages with no currency header (cover) contribute no txn rows usually.
+            if keep:
+                extraction.rows = [row for row in extraction.rows if row.source_page in keep]
+                for number, row in enumerate(extraction.rows, start=1):
+                    row.row_no = number
         return extraction
     finally:
         document.close()
@@ -278,13 +344,23 @@ def _ocr_image(image: Image.Image, page_no: int):
 
 
 def recognize(image: Image.Image) -> tuple[Image.Image, list[Token]]:
-    provider = os.environ.get("OCR_PROVIDER", "local")
+    """OCR adapter. Switch with OCR_PROVIDER=textract|local (same Token contract)."""
+    provider = (os.environ.get("OCR_PROVIDER") or "textract").strip().lower()
     if provider == "textract":
-        raise CodedError("textract_not_available")
+        return _recognize_textract(image)
     if provider != "local":
-        raise CodedError("unknown_ocr_provider")
+        raise CodedError("unknown_ocr_provider", f"Unknown OCR_PROVIDER={provider!r}")
+    return _recognize_tesseract(image)
+
+
+def _recognize_tesseract(image: Image.Image) -> tuple[Image.Image, list[Token]]:
     processed = _preprocess(image)
     import pytesseract
+
+    # Prefer the host install when the worker runs outside Docker (Windows lab).
+    tesseract_cmd = os.environ.get("TESSERACT_CMD", "").strip()
+    if tesseract_cmd:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
     data = pytesseract.image_to_data(
         processed,
@@ -307,6 +383,66 @@ def recognize(image: Image.Image) -> tuple[Image.Image, list[Token]]:
         x, y, w, h = data["left"][index], data["top"][index], data["width"][index], data["height"][index]
         tokens.append(Token(text, x, y, x + w, y + h, confidence / 100.0))
     return processed, tokens
+
+
+def _recognize_textract(image: Image.Image) -> tuple[Image.Image, list[Token]]:
+    """AWS Textract DetectDocumentText → Token list (pixel coords)."""
+    try:
+        import boto3
+        from botocore.exceptions import BotoCoreError, ClientError
+    except ImportError as exc:
+        raise CodedError(
+            "textract_not_available",
+            "boto3 is required for OCR_PROVIDER=textract. Install worker deps / pip install boto3.",
+        ) from exc
+
+    rgb = image.convert("RGB")
+    width, height = rgb.size
+    if width < 1 or height < 1:
+        raise CodedError("textract_empty_image")
+
+    buffer = io.BytesIO()
+    rgb.save(buffer, format="PNG")
+    payload = buffer.getvalue()
+    # Textract sync API limit is 10 MB for bytes.
+    if len(payload) > 10 * 1024 * 1024:
+        raise CodedError("textract_image_too_large", "Image exceeds Textract 10MB sync limit")
+
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
+    client_kwargs: dict = {"region_name": region}
+    endpoint = (os.environ.get("AWS_TEXTRACT_ENDPOINT") or "").strip()
+    if endpoint:
+        client_kwargs["endpoint_url"] = endpoint
+
+    try:
+        client = boto3.client("textract", **client_kwargs)
+        response = client.detect_document_text(Document={"Bytes": payload})
+    except (BotoCoreError, ClientError) as exc:
+        raise CodedError("textract_failed", "Textract request failed") from exc
+
+    tokens: list[Token] = []
+    for block in response.get("Blocks") or []:
+        if block.get("BlockType") != "WORD":
+            continue
+        text = (block.get("Text") or "").strip()
+        if not text:
+            continue
+        box = (block.get("Geometry") or {}).get("BoundingBox") or {}
+        try:
+            left = float(box.get("Left", 0.0)) * width
+            top = float(box.get("Top", 0.0)) * height
+            w = float(box.get("Width", 0.0)) * width
+            h = float(box.get("Height", 0.0)) * height
+        except (TypeError, ValueError):
+            continue
+        conf_raw = block.get("Confidence")
+        try:
+            confidence = float(conf_raw) / 100.0 if conf_raw is not None else None
+        except (TypeError, ValueError):
+            confidence = None
+        tokens.append(Token(text, left, top, left + w, top + h, confidence))
+
+    return rgb, tokens
 
 
 def _preprocess(image: Image.Image) -> Image.Image:
@@ -349,7 +485,7 @@ def _rows_from_tokens(tokens: list[Token], page_no: int, page_width: int, page_h
             if field and field not in seen:
                 mapped.append((token, field))
                 seen.add(field)
-        if "txn_date" in seen and len(seen) >= 3 and ({"debit", "credit", "balance"} & seen):
+        if "txn_date" in seen and len(seen) >= 3 and ({"debit", "credit", "amount", "balance"} & seen):
             header_index = index
             ordered = sorted(mapped, key=lambda item: item[0].x0)
             centers = [((token.x0 + token.x1) / 2, token.text.strip()) for token, _field in ordered]
@@ -460,7 +596,7 @@ def _split_loose(line: str) -> list[str]:
 
 def _row_is_header(cells: list[str]) -> bool:
     fields = {field_for_header(cell) for cell in cells if cell and field_for_header(cell)}
-    return "txn_date" in fields and len(fields) >= 3 and bool(fields & {"debit", "credit", "balance"})
+    return "txn_date" in fields and len(fields) >= 3 and bool(fields & {"debit", "credit", "amount", "balance"})
 
 
 def _delimiter(lines: list[str]) -> str:
@@ -496,18 +632,73 @@ def _metadata_from_free_text(text: str) -> dict[str, str]:
     meta: dict[str, str] = {}
     opening = OPENING_RE.search(text or "")
     closing = CLOSING_RE.search(text or "")
-    period = PERIOD_RE.search(text or "")
     currency = CURRENCY_RE.search(text or "")
     if opening:
         meta["opening"] = opening.group(1)
     if closing:
         meta["closing"] = closing.group(1)
-    if period:
-        meta["period_start"] = _normalise_period_token(period.group(1))
-        meta["period_end"] = _normalise_period_token(period.group(2))
+    start, end = period_range_from_text(text or "")
+    if start and end:
+        meta["period_start"] = start
+        meta["period_end"] = end
     if currency:
         meta["currency"] = currency.group(1).upper()
     return meta
+
+
+def _balances_for_currency(text: str, currency: str) -> dict[str, str]:
+    """When a PDF holds several accounts, take opening/closing for one currency."""
+    out: dict[str, str] = {}
+    if not text or not currency:
+        return out
+    # Split on ACCOUNT HOLDER / ACCOUNT STATEMENT blocks so each account is local.
+    chunks = re.split(r"(?=ACCOUNT HOLDER NAME|ACCOUNT STATEMENT)", text, flags=re.I)
+    for chunk in chunks:
+        cur = PAGE_CURRENCY_RE.search(chunk) or CURRENCY_RE.search(chunk)
+        if not cur or cur.group(1).upper() != currency.upper():
+            continue
+        opening = OPENING_RE.search(chunk)
+        closing = CLOSING_RE.search(chunk)
+        if opening:
+            out["opening"] = opening.group(1)
+        if closing:
+            out["closing"] = closing.group(1)
+        out["currency"] = currency.upper()
+        if out.get("opening") is not None and out.get("closing") is not None:
+            return out
+    return out
+
+
+def period_range_from_text(text: str) -> tuple[str | None, str | None]:
+    """Return (ISO start, ISO end) from statement body or filename text."""
+    if not text:
+        return None, None
+    month = PERIOD_MONTH_RE.search(text)
+    if month:
+        start = _normalise_period_token(month.group(1))
+        end = _normalise_period_token(month.group(2))
+        if _looks_iso(start) and _looks_iso(end):
+            return start, end
+    numeric = PERIOD_RE.search(text)
+    if numeric:
+        start = _normalise_period_token(numeric.group(1))
+        end = _normalise_period_token(numeric.group(2))
+        if _looks_iso(start) and _looks_iso(end):
+            return start, end
+    return None, None
+
+
+def period_range_from_filename(filename: str | None) -> tuple[str | None, str | None]:
+    """Parse ranges like statement(Aug 1, 2026 - Aug 31, 2026).pdf."""
+    if not filename:
+        return None, None
+    # Drop extension noise; keep parentheses content which often holds the range.
+    stem = re.sub(r"\.[A-Za-z0-9]+$", "", filename)
+    return period_range_from_text(stem)
+
+
+def _looks_iso(value: str | None) -> bool:
+    return bool(value and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value))
 
 
 def _assign_meta(meta: dict[str, str], key: str, value: str) -> None:
@@ -522,25 +713,37 @@ def _assign_meta(meta: dict[str, str], key: str, value: str) -> None:
     elif name in {"period end", "to"}:
         meta["period_end"] = _normalise_period_token(value)
     elif name == "period":
-        match = re.search(r"(\d{4}-\d{2}-\d{2}).*?(\d{4}-\d{2}-\d{2})", value)
-        if match:
-            meta["period_start"], meta["period_end"] = match.group(1), match.group(2)
+        start, end = period_range_from_text(value)
+        if start and end:
+            meta["period_start"], meta["period_end"] = start, end
+        else:
+            match = re.search(r"(\d{4}-\d{2}-\d{2}).*?(\d{4}-\d{2}-\d{2})", value)
+            if match:
+                meta["period_start"], meta["period_end"] = match.group(1), match.group(2)
     elif name == "currency":
         meta["currency"] = value.upper()
 
 
 def _normalise_period_token(value: str) -> str:
-    text = value.strip()
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+    text = re.sub(r"\s+", " ", value.strip())
+    text = text.replace(",", "")
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%m/%d/%Y", *_MONTH_NAME_FMTS):
         try:
             return datetime.strptime(text, fmt).date().isoformat()
         except ValueError:
             continue
-    return text
+    # Retry with comma restored for "%b %d, %Y" style after we stripped commas above.
+    with_comma = re.sub(r"\s+", " ", value.strip())
+    for fmt in _MONTH_NAME_FMTS:
+        try:
+            return datetime.strptime(with_comma, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return text.strip()
 
 
 def _amount_samples(headers: list[str], rows: list[RawRow]) -> list[str]:
-    names = [header for header in headers if field_for_header(header) in {"debit", "credit", "balance"}]
+    names = [header for header in headers if field_for_header(header) in {"debit", "credit", "amount", "balance"}]
     samples = []
     for row in rows:
         for name in names:

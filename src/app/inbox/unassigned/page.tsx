@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-import { DEMO_CLIENT_ID, DEMO_PERIOD_ID } from "@/config/product";
 import { Button } from "@/components/ui/button";
 
 type InboxRow = {
@@ -18,6 +17,7 @@ export default function UnassignedInboxPage() {
   const [rows, setRows] = useState<InboxRow[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [clientLabel, setClientLabel] = useState("current client");
 
   function load() {
     fetch("/api/inbox/unassigned")
@@ -28,6 +28,13 @@ export default function UnassignedInboxPage() {
 
   useEffect(() => {
     load();
+    fetch("/api/session")
+      .then((r) => r.json())
+      .then((book) => {
+        const name = book.clients?.find((c: { id: string; name: string }) => c.id === book.clientId)?.name;
+        if (name) setClientLabel(name);
+      })
+      .catch(() => undefined);
   }, []);
 
   async function onUpload(files: FileList | null) {
@@ -57,15 +64,28 @@ export default function UnassignedInboxPage() {
     load();
   }
 
-  async function routeToDemo(inboxId: string, docType?: string | null) {
+  async function routeToCurrent(inboxId: string, docType?: string | null) {
     setError("");
+    const session = await fetch("/api/session").then((r) => r.json());
+    const clientId = String(session.clientId || "");
+    if (!clientId) {
+      setError("No client selected.");
+      return;
+    }
+    const periods = await fetch("/api/periods").then((r) => r.json());
+    const list = Array.isArray(periods) ? periods : [];
+    const open = list.find((p: { status: string }) => p.status === "OPEN" || p.status === "REOPENED") || list[0];
+    if (!open?.id) {
+      setError("No accounting period on this client. Generate months from Home first.");
+      return;
+    }
     const response = await fetch("/api/inbox/route", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         inboxId,
-        clientId: DEMO_CLIENT_ID,
-        periodId: DEMO_PERIOD_ID,
+        clientId,
+        periodId: open.id,
         docType: docType || "OTHER",
       }),
     });
@@ -73,7 +93,7 @@ export default function UnassignedInboxPage() {
       setError("Routing failed.");
       return;
     }
-    setMessage("Routed to Al Noor / Q1 2026.");
+    setMessage(`Routed to ${clientLabel} · ${open.label}.`);
     load();
   }
 
@@ -92,7 +112,7 @@ export default function UnassignedInboxPage() {
           type="file"
           multiple
           className="hidden"
-          onChange={(e) => onUpload(e.target.files)}
+          onChange={(e) => void onUpload(e.target.files)}
         />
       </label>
 
@@ -109,8 +129,8 @@ export default function UnassignedInboxPage() {
                 {row.duplicateOf ? " · duplicate" : ""}
               </div>
             </div>
-            <Button type="button" size="sm" onClick={() => routeToDemo(row.id, row.detectedDocType)}>
-              Route to Al Noor Q1
+            <Button type="button" size="sm" onClick={() => void routeToCurrent(row.id, row.detectedDocType)}>
+              Route to {clientLabel}
             </Button>
           </li>
         ))}

@@ -92,6 +92,12 @@ export default async function globalSetup() {
   psql("daftar_e2e", ["-f", path.join(ROOT, "db/20-books-coa-v2.sql")]);
   psql("daftar_e2e", ["-f", path.join(ROOT, "db/21-books-phase0-fixes.sql")]);
   psql("daftar_e2e", ["-f", path.join(ROOT, "db/22-books-alignment.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/24-general-clients.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/25-client-archive.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/26-client-access-rls-fix.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/27-retire-lab-shell.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/28-invoice-extract-jobs.sql")]);
+  psql("daftar_e2e", ["-f", path.join(ROOT, "db/29-ledger-voucher-nos.sql")]);
 
   const admin = new pg.Client({
     connectionString:

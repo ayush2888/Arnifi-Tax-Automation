@@ -7,9 +7,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, monospace;
-  --font-heading: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
   --color-ok: var(--status-ok);
   --color-warn: var(--status-warn);
   --color-danger: var(--status-error);
@@ -57,23 +57,23 @@
 }
 
 :root {
-  /* TEMP Arnifi blue — see src/config/theme.ts. Green = success/posted only. */
-  --brand-primary: #1f5bd8;
-  --brand-primary-hover: #1747b0;
-  --primary-subtle: #e8f0fc;
-  --brand-accent: #0e7c66;
+  /* Arnifi finance theme — polished MENA product feel, Arnifi blue (not competitor colours). */
+  --brand-primary: #1254c9;
+  --brand-primary-hover: #0e43a3;
+  --primary-subtle: #e4eefc;
+  --brand-accent: #0c9a7d;
   --surface: #ffffff;
-  --surface-muted: #f7f8fa;
+  --surface-muted: #eef3fb;
   --surface-raised: #ffffff;
-  --border: #e5e7eb;
-  --text: #111827;
-  --text-muted: #6b7280;
+  --border: #d4deee;
+  --text: #0b1220;
+  --text-muted: #5a6b84;
   --status-ok: #0f9d58;
   --status-warn: #d97706;
   --status-error: #dc2626;
-  --status-info: #1f5bd8;
-  --status-closing: #7c3aed;
-  --background: #f7f8fa;
+  --status-info: #1254c9;
+  --status-closing: #0c9a7d;
+  --background: #e8eef8;
   --foreground: var(--text);
   --card: var(--surface);
   --card-foreground: var(--text);
@@ -81,29 +81,32 @@
   --popover-foreground: var(--text);
   --primary: var(--brand-primary);
   --primary-foreground: #ffffff;
-  --secondary: #f3f4f6;
+  --secondary: #e4ecf8;
   --secondary-foreground: var(--text);
-  --muted: #f3f4f6;
+  --muted: #e4ecf8;
   --muted-foreground: var(--text-muted);
   --accent: var(--primary-subtle);
   --accent-foreground: var(--brand-primary);
   --destructive: var(--status-error);
   --input: var(--border);
   --ring: var(--brand-primary);
-  --chart-1: #1f5bd8;
+  --chart-1: #1254c9;
   --chart-2: #0f9d58;
   --chart-3: #d97706;
-  --chart-4: #7c3aed;
-  --chart-5: #6b7280;
-  --radius: 0.5rem;
-  --sidebar: #ffffff;
-  --sidebar-foreground: var(--text);
-  --sidebar-primary: var(--brand-primary);
+  --chart-4: #0c9a7d;
+  --chart-5: #5a6b84;
+  --radius: 0.75rem;
+  --sidebar: #0b1f3a;
+  --sidebar-foreground: #e8eef8;
+  --sidebar-primary: #3d8bfd;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: var(--primary-subtle);
-  --sidebar-accent-foreground: var(--brand-primary);
-  --sidebar-border: var(--border);
-  --sidebar-ring: var(--brand-primary);
+  --sidebar-accent: rgba(61, 139, 253, 0.14);
+  --sidebar-accent-foreground: #f0f6ff;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #3d8bfd;
+  --sidebar-muted: #8ba0bc;
+  --shadow-card: 0 1px 2px rgba(11, 31, 58, 0.04), 0 8px 24px -12px rgba(18, 84, 201, 0.18);
+  --shadow-card-hover: 0 2px 4px rgba(11, 31, 58, 0.06), 0 16px 40px -16px rgba(18, 84, 201, 0.28);
 }
 
 .dark {
@@ -134,14 +137,15 @@
   --destructive: #f87171;
   --input: var(--border);
   --ring: var(--brand-primary);
-  --sidebar: #111827;
-  --sidebar-foreground: var(--text);
+  --sidebar: #0a1220;
+  --sidebar-foreground: #e8eef8;
   --sidebar-primary: var(--brand-primary);
   --sidebar-primary-foreground: #0b1224;
-  --sidebar-accent: var(--surface-muted);
-  --sidebar-accent-foreground: var(--text);
-  --sidebar-border: var(--border);
+  --sidebar-accent: rgba(91, 141, 239, 0.16);
+  --sidebar-accent-foreground: #f0f6ff;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-ring: var(--brand-primary);
+  --sidebar-muted: #8ba0bc;
 }
 
 .tabular-nums {
@@ -153,9 +157,168 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(ellipse 90% 55% at 50% -15%, color-mix(in oklab, var(--primary) 16%, transparent), transparent 55%),
+      radial-gradient(ellipse 50% 40% at 100% 0%, color-mix(in oklab, var(--brand-accent) 8%, transparent), transparent 45%);
+    background-attachment: fixed;
   }
   html {
     @apply font-sans;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 22%, white);
+  }
+}
+
+/* Shared product surfaces — CrossVal-inspired polish, Arnifi colours (plain CSS; no nested @apply). */
+.ab-panel {
+  border-radius: 1rem;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+
+.ab-panel-interactive {
+  border-radius: 1rem;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+.ab-panel-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card-hover);
+  border-color: color-mix(in oklab, var(--primary) 28%, var(--border));
+}
+
+.ab-stat {
+  position: relative;
+  overflow: hidden;
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+}
+.ab-stat::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--primary), var(--brand-accent));
+  opacity: 0.85;
+}
+
+.ab-hero-band {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  padding: 1.25rem;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--primary) 10%, white),
+    color-mix(in oklab, var(--brand-accent) 6%, white) 55%,
+    white
+  );
+  box-shadow: var(--shadow-card);
+}
+.ab-hero-band::after {
+  content: "";
+  position: absolute;
+  right: -40px;
+  top: -40px;
+  width: 160px;
+  height: 160px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, color-mix(in oklab, var(--primary) 18%, transparent), transparent 70%);
+  pointer-events: none;
+}
+
+.ab-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 200ms ease;
+}
+
+/* Instant page paint on nav — no fade/slide (felt slow between Home / Inbox / Bank). */
+.ab-page-enter {
+  animation: none;
+}
+
+.ab-soft-btn {
+  display: inline-flex;
+  height: 2.25rem;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--background) 80%, transparent);
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  backdrop-filter: blur(8px);
+  transition: all 150ms ease;
+}
+.ab-chip {
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.ab-chip:hover {
+  border-color: color-mix(in oklab, var(--primary) 35%, var(--border));
+  color: var(--primary);
+}
+.ab-chip-active {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+  color: var(--primary);
+}
+
+.ab-soft-btn:hover {
+  border-color: color-mix(in oklab, var(--primary) 35%, var(--border));
+  background: var(--primary-subtle);
+  color: var(--primary);
+  transform: translateY(-1px);
+}
+
+@keyframes ab-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ab-page-enter,
+  .ab-panel-interactive,
+  .ab-nav-item,
+  .ab-soft-btn {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
   }
 }

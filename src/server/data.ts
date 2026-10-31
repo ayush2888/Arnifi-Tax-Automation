@@ -2,11 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { PoolClient } from "pg";
 
+import { isSwitcherVisibleClient } from "@/config/product";
 import { unsupportedCurrency } from "@/lib/currency";
 import { withUser } from "@/lib/db";
 import { csvCell } from "@/lib/csv";
 import { assertMinor, formatMinor } from "@/lib/money";
-import { putObject } from "@/lib/storage";
+import { periodRangeFromFilename } from "@/lib/statement-period";
+import { putObject, signedGetUrl } from "@/lib/storage";
 
 export type Actor = { userId: string; clientId: string; role: string; firmId: string };
 
@@ -37,6 +39,7 @@ export type TxnQuery = {
 };
 
 export async function actor(userId: string, clientId: string): Promise<Actor | null> {
+  if (!userId || !clientId) return null;
   return withUser(userId, async (db) => {
     const row = await db.query(
       `SELECT u.role, u.firm_id
@@ -55,24 +58,47 @@ export async function directory(userId: string) {
     const users = await db.query(
       `SELECT id, name, email, role FROM users ORDER BY name`,
     );
+    // Only companies this user can access, not archived, and not fixture/lab seeds.
     const clients = await db.query(
-      `SELECT id, name, trn, default_currency FROM clients ORDER BY name`,
+      `SELECT c.id, c.name, c.trn, c.default_currency
+       FROM clients c
+       JOIN user_client_access a ON a.client_id = c.id
+       WHERE a.user_id = $1
+         AND c.archived_at IS NULL
+       ORDER BY c.name`,
+      [userId],
     );
     const me = users.rows.find((row) => row.id === userId) ?? null;
     return {
       me: me && { id: me.id, name: me.name, email: me.email, role: me.role },
       users: users.rows.map((row) => ({ id: row.id, name: row.name, email: row.email, role: row.role })),
-      clients: clients.rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        trn: row.trn,
-        defaultCurrency: row.default_currency,
-      })),
+      clients: clients.rows
+        .filter((row) => isSwitcherVisibleClient(String(row.id)))
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          trn: row.trn,
+          defaultCurrency: row.default_currency,
+        })),
     };
   });
 }
 
 export async function dashboard(userId: string, clientId: string) {
+  if (!clientId) {
+    return {
+      statements: 0,
+      transactions: 0,
+      needsReview: 0,
+      balanceFailures: 0,
+      inboxToReview: 0,
+      statementsStuck: 0,
+      bankUnclassified: 0,
+      bankNeedsReview: 0,
+      draftJournals: 0,
+      recent: [] as ReturnType<typeof mapStatement>[],
+    };
+  }
   return withUser(userId, async (db) => {
     const counts = await db.query(
       `SELECT
@@ -85,7 +111,16 @@ export async function dashboard(userId: string, clientId: string) {
               SELECT 1 FROM bank_transactions t
               WHERE t.statement_id = s.id AND 'balance_break' = ANY(t.flags)
             )
-         )) AS balance_failures`,
+         )) AS balance_failures,
+         (SELECT count(*) FROM documents d
+           WHERE d.client_id = $1 AND d.status NOT IN ('posted', 'rejected')) AS inbox_to_review,
+         (SELECT count(*) FROM statements s
+           WHERE s.client_id = $1
+             AND s.status IN ('parsing', 'uploaded', 'needs_review', 'failed')) AS statements_stuck,
+         (SELECT count(*) FROM bank_transactions t
+           WHERE t.client_id = $1 AND t.class_status = 'unclassified') AS bank_unclassified,
+         (SELECT count(*) FROM journal_entries e
+           WHERE e.client_id = $1 AND e.status = 'draft') AS draft_journals`,
       [clientId],
     );
     const recent = await db.query(
@@ -99,11 +134,17 @@ export async function dashboard(userId: string, clientId: string) {
       [clientId],
     );
     const row = counts.rows[0];
+    const bankNeedsReview = Number(row.needs_review);
     return {
       statements: Number(row.statements),
       transactions: Number(row.transactions),
-      needsReview: Number(row.needs_review),
+      needsReview: bankNeedsReview,
       balanceFailures: Number(row.balance_failures),
+      inboxToReview: Number(row.inbox_to_review),
+      statementsStuck: Number(row.statements_stuck),
+      bankUnclassified: Number(row.bank_unclassified),
+      bankNeedsReview,
+      draftJournals: Number(row.draft_journals),
       recent: recent.rows.map(mapStatement),
     };
   });
@@ -113,7 +154,7 @@ export async function bankAccounts(userId: string, clientId: string) {
   return withUser(userId, async (db) => {
     const rows = await db.query(
       `SELECT id, bank_name, label, iban_masked, currency
-       FROM bank_accounts WHERE client_id = $1 ORDER BY label`,
+       FROM bank_accounts WHERE client_id = $1 ORDER BY currency, label`,
       [clientId],
     );
     return rows.rows.map((row) => ({
@@ -123,6 +164,52 @@ export async function bankAccounts(userId: string, clientId: string) {
       ibanMasked: row.iban_masked,
       currency: row.currency,
     }));
+  });
+}
+
+function maskIban(raw: string | null | undefined) {
+  const compact = String(raw || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  if (compact.length < 8) return "AE** **** **** NEW";
+  return `${compact.slice(0, 2)}** **** **** ${compact.slice(-4)}`;
+}
+
+/** Add a bank account for statement uploads (one currency per account). */
+export async function createBankAccount(
+  userId: string,
+  clientId: string,
+  body: { bankName: string; label: string; currency?: string; iban?: string | null },
+) {
+  return withUser(userId, async (db) => {
+    const role = await db.query(`SELECT role FROM users WHERE id = $1`, [userId]);
+    if (!["admin", "accountant"].includes(String(role.rows[0]?.role))) {
+      return {
+        error: "forbidden" as const,
+        message: "Switch Working as to Accountant to add a bank account.",
+      };
+    }
+    const bankName = String(body.bankName || "").trim();
+    const label = String(body.label || "").trim();
+    const currency = String(body.currency || "AED")
+      .trim()
+      .toUpperCase();
+    if (!bankName || !label) return { error: "bank_name_and_label_required" as const };
+    if (!/^[A-Z]{3}$/.test(currency)) return { error: "invalid_currency" as const };
+
+    const id = randomUUID();
+    const ibanMasked = maskIban(body.iban);
+    await db.query(
+      `INSERT INTO bank_accounts (id, client_id, bank_name, label, iban_masked, currency)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [id, clientId, bankName, label, ibanMasked, currency],
+    );
+    await db.query(
+      `INSERT INTO audit_log (firm_id, client_id, entity, entity_id, action, actor, diff)
+       SELECT firm_id, $2, 'bank_account', $3, 'create', $1, $4::jsonb FROM users WHERE id = $1`,
+      [userId, clientId, id, JSON.stringify({ bankName, label, currency, ibanMasked })],
+    );
+    return { id, bankName, label, ibanMasked, currency };
   });
 }
 
@@ -138,41 +225,59 @@ export async function registerUpload(
   return withUser(userId, async (db) => {
     const role = await db.query(`SELECT role FROM users WHERE id = $1`, [userId]);
     if (!["admin", "accountant"].includes(role.rows[0]?.role)) {
-      return { error: "forbidden" as const };
-    }
-    const existing = await db.query(
-      `SELECT s.id
-       FROM files f
-       JOIN statements s ON s.file_id = f.id
-       WHERE f.client_id = $1 AND f.sha256 = $2
-       ORDER BY s.created_at
-       LIMIT 1`,
-      [clientId, digest],
-    );
-    if (existing.rowCount) {
-      return { statementId: existing.rows[0].id as string, duplicate: true };
+      return {
+        error: "forbidden" as const,
+        message: "Switch Working as to Accountant to upload bank statements.",
+      };
     }
     const account = await db.query(
-      `SELECT id FROM bank_accounts WHERE id = $1 AND client_id = $2`,
+      `SELECT id, currency FROM bank_accounts WHERE id = $1 AND client_id = $2`,
       [bankAccountId, clientId],
     );
     if (!account.rowCount) return { error: "unknown_account" as const };
+    const accountCurrency = String(account.rows[0].currency || "AED").toUpperCase();
+
+    // Same PDF may be uploaded once per bank account (Wio AED+USD in one file).
+    const existingForAccount = await db.query(
+      `SELECT s.id
+       FROM files f
+       JOIN statements s ON s.file_id = f.id
+       WHERE f.client_id = $1 AND f.sha256 = $2 AND s.bank_account_id = $3
+       ORDER BY s.created_at
+       LIMIT 1`,
+      [clientId, digest, bankAccountId],
+    );
+    if (existingForAccount.rowCount) {
+      return { statementId: existingForAccount.rows[0].id as string, duplicate: true };
+    }
+
     const refused = unsupportedCurrency(content);
     if (refused) return refused;
-    const fileId = randomUUID();
+
+    // Reuse the stored file bytes when the same PDF is uploaded for another account.
+    const priorFile = await db.query(
+      `SELECT id, storage_key FROM files WHERE client_id = $1 AND sha256 = $2 ORDER BY created_at LIMIT 1`,
+      [clientId, digest],
+    );
+    let fileId: string;
+    if (priorFile.rowCount) {
+      fileId = String(priorFile.rows[0].id);
+    } else {
+      fileId = randomUUID();
+      const key = `clients/${clientId}/files/${fileId}`;
+      await putObject(key, content, mime || "application/octet-stream");
+      await db.query(
+        `INSERT INTO files (id, client_id, sha256, original_name, detected_mime, size, storage_key, uploaded_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [fileId, clientId, digest, filename, mime || "application/octet-stream", content.length, key, userId],
+      );
+    }
     const statementId = randomUUID();
     const jobId = randomUUID();
-    const key = `clients/${clientId}/files/${fileId}`;
-    await putObject(key, content, mime || "application/octet-stream");
-    await db.query(
-      `INSERT INTO files (id, client_id, sha256, original_name, detected_mime, size, storage_key, uploaded_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [fileId, clientId, digest, filename, mime || "application/octet-stream", content.length, key, userId],
-    );
     await db.query(
       `INSERT INTO statements (id, client_id, bank_account_id, file_id, currency, status)
-       VALUES ($1,$2,$3,$4,'AED','uploaded')`,
-      [statementId, clientId, bankAccountId, fileId],
+       VALUES ($1,$2,$3,$4,$5,'uploaded')`,
+      [statementId, clientId, bankAccountId, fileId, accountCurrency],
     );
     await db.query(
       `INSERT INTO jobs (id, client_id, statement_id, file_id, uploaded_by, kind, status)
@@ -181,8 +286,8 @@ export async function registerUpload(
     );
     await db.query(
       `INSERT INTO audit_log (firm_id, client_id, entity, entity_id, action, actor, diff)
-       SELECT firm_id, $2, 'file', $3, 'upload', $4, $5::jsonb FROM users WHERE id = $4`,
-      [userId, clientId, fileId, userId, JSON.stringify({ name: filename, bytes: content.length })],
+       SELECT firm_id, $2, 'file', $3, 'upload', $1, $4::jsonb FROM users WHERE id = $1`,
+      [userId, clientId, fileId, JSON.stringify({ name: filename, bytes: content.length })],
     );
     return { statementId, duplicate: false };
   });
@@ -206,14 +311,18 @@ export async function listStatements(userId: string, clientId: string) {
        ORDER BY s.created_at DESC`,
       [clientId],
     );
-    return rows.rows.map(mapStatement);
+    const mapped = [];
+    for (const row of rows.rows) {
+      mapped.push(await hydrateStatementPeriod(db, row));
+    }
+    return mapped;
   });
 }
 
 export async function getStatement(userId: string, clientId: string, id: string) {
   return withUser(userId, async (db) => {
     const rows = await db.query(
-      `SELECT ${STATEMENT_COLUMNS}
+      `SELECT ${STATEMENT_COLUMNS}, f.storage_key AS file_storage_key
        FROM statements s
        JOIN bank_accounts b ON b.id = s.bank_account_id
        JOIN files f ON f.id = s.file_id
@@ -221,13 +330,60 @@ export async function getStatement(userId: string, clientId: string, id: string)
       [id, clientId],
     );
     if (!rows.rowCount) return null;
+    const base = rows.rows[0];
     const events = await db.query(
       `SELECT stage, method, pages, est_cost_usd, duration_ms, created_at
        FROM processing_events WHERE statement_id = $1 ORDER BY created_at`,
       [id],
     );
+    const lines = await db.query(
+      `SELECT id, row_no AS "rowNo", source_page AS "sourcePage", source_bbox AS "sourceBbox",
+              txn_date AS "txnDate", description_raw AS "description", reference,
+              debit_minor AS "debitMinor", credit_minor AS "creditMinor",
+              balance_minor AS "balanceMinor", currency, txn_type AS "txnType",
+              review_status AS "reviewStatus", flags
+       FROM bank_transactions
+       WHERE statement_id = $1
+       ORDER BY row_no
+       LIMIT 500`,
+      [id],
+    );
+    const pageRows = await db.query(
+      `SELECT page_no AS "pageNo", storage_key, width, height
+       FROM statement_pages
+       WHERE statement_id = $1
+       ORDER BY page_no`,
+      [id],
+    );
+    // Raw OCR cells — useful before mapping is confirmed (no bank_transactions yet).
+    const raw =
+      lines.rowCount === 0
+        ? await db.query(
+            `SELECT row_no AS "rowNo", source_page AS "sourcePage", source_bbox AS "sourceBbox",
+                    cells, confidence
+             FROM statement_extracted
+             WHERE statement_id = $1
+             ORDER BY row_no
+             LIMIT 500`,
+            [id],
+          )
+        : { rows: [] as Record<string, unknown>[] };
+    const fileKey = base.file_storage_key ? String(base.file_storage_key) : null;
+    const fileUrl = fileKey ? await signedGetUrl(fileKey) : null;
+    const pages = [];
+    for (const page of pageRows.rows) {
+      pages.push({
+        pageNo: Number(page.pageNo),
+        url: await signedGetUrl(String(page.storage_key)),
+        width: page.width == null ? null : Number(page.width),
+        height: page.height == null ? null : Number(page.height),
+      });
+    }
     return {
-      ...mapStatement(rows.rows[0]),
+      ...(await hydrateStatementPeriod(db, base)),
+      fileUrl,
+      mime: base.detected_mime ? String(base.detected_mime) : null,
+      pages,
       events: events.rows.map((event) => ({
         stage: event.stage,
         method: event.method,
@@ -235,6 +391,19 @@ export async function getStatement(userId: string, clientId: string, id: string)
         estCostUsd: event.est_cost_usd,
         durationMs: event.duration_ms,
         at: event.created_at,
+      })),
+      lines: lines.rows.map((line) => ({
+        ...line,
+        debitMinor: line.debitMinor == null ? null : Number(line.debitMinor),
+        creditMinor: line.creditMinor == null ? null : Number(line.creditMinor),
+        balanceMinor: line.balanceMinor == null ? null : Number(line.balanceMinor),
+      })),
+      rawExtracted: raw.rows.map((row) => ({
+        rowNo: Number(row.rowNo),
+        sourcePage: row.sourcePage == null ? null : Number(row.sourcePage),
+        sourceBbox: row.sourceBbox ?? null,
+        cells: (row.cells as Record<string, string>) || {},
+        confidence: row.confidence == null ? null : Number(row.confidence),
       })),
     };
   });
@@ -300,7 +469,7 @@ const TXN_SELECT = `
   t.counterparty, t.debit_minor, t.credit_minor, t.balance_minor, t.currency, t.category_id,
   c.name AS category_name, t.class_status, t.review_status, t.flags, t.extraction_confidence,
   t.statement_id, t.source_page, t.source_bbox,
-  b.bank_name, s.period_start
+  b.bank_name, b.label AS account_label, b.currency AS account_currency, s.period_start, s.currency AS statement_currency
 `;
 
 export async function listTransactions(userId: string, clientId: string, query: TxnQuery) {
@@ -691,6 +860,26 @@ async function canWrite(db: PoolClient, userId: string) {
   return ["admin", "accountant"].includes(role.rows[0]?.role);
 }
 
+async function hydrateStatementPeriod(db: PoolClient, row: Record<string, unknown>) {
+  let periodStart = row.period_start as string | null;
+  let periodEnd = row.period_end as string | null;
+  if (!periodStart || !periodEnd) {
+    const fromName = periodRangeFromFilename(String(row.original_name || ""));
+    if (fromName) {
+      periodStart = periodStart || fromName.start;
+      periodEnd = periodEnd || fromName.end;
+      await db.query(
+        `UPDATE statements
+         SET period_start = COALESCE(period_start, $2::date),
+             period_end = COALESCE(period_end, $3::date)
+         WHERE id = $1`,
+        [row.id, fromName.start, fromName.end],
+      );
+    }
+  }
+  return mapStatement({ ...row, period_start: periodStart, period_end: periodEnd });
+}
+
 function mapStatement(row: Record<string, unknown>) {
   const flags = (row.validation_flags as string[]) || [];
   return {
@@ -725,6 +914,9 @@ function mapStatement(row: Record<string, unknown>) {
 
 function mapTxn(row: Record<string, unknown>) {
   const period = row.period_start ? String(row.period_start).slice(0, 7) : "Statement";
+  const account = String(row.account_label || "").trim();
+  const currency = String(row.currency || row.account_currency || row.statement_currency || "AED");
+  const bank = String(row.bank_name || "Bank");
   return {
     id: row.id as string,
     rowNo: row.row_no as number,
@@ -737,7 +929,8 @@ function mapTxn(row: Record<string, unknown>) {
     debitMinor: (row.debit_minor as number | null) ?? null,
     creditMinor: (row.credit_minor as number | null) ?? null,
     balanceMinor: (row.balance_minor as number | null) ?? null,
-    currency: row.currency as string,
+    currency,
+    accountLabel: account || null,
     categoryId: (row.category_id as string | null) ?? null,
     categoryName: (row.category_name as string | null) ?? null,
     classStatus: row.class_status as string,
@@ -745,7 +938,8 @@ function mapTxn(row: Record<string, unknown>) {
     flags: (row.flags as string[]) || [],
     confidence: row.extraction_confidence == null ? null : Number(row.extraction_confidence),
     statementId: row.statement_id as string,
-    statementLabel: `${row.bank_name} · ${period}`,
+    // Shows which uploaded statement/account the line came from.
+    statementLabel: account ? `${bank} · ${account} · ${currency} · ${period}` : `${bank} · ${currency} · ${period}`,
     sourcePage: (row.source_page as number | null) ?? null,
     sourceBbox: row.source_bbox,
   };

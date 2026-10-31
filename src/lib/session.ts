@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-import { DEMO_CLIENT_ID, DEMO_USER_ID } from "@/config/product";
+import { DEMO_USER_ID } from "@/config/product";
 
 export type Session = { userId: string; clientId: string };
 
@@ -8,8 +8,9 @@ export async function readSession(): Promise<Session | null> {
   const jar = await cookies();
   const userId = jar.get("daftar_user")?.value;
   const clientId = jar.get("daftar_client")?.value;
-  if (!userId || !clientId) return null;
-  return { userId, clientId };
+  if (!userId) return null;
+  // clientId may be empty when the accountant has no company yet (create from Home).
+  return { userId, clientId: clientId || "" };
 }
 
 export class SessionError extends Error {
@@ -26,11 +27,14 @@ export async function requireSession(): Promise<Session> {
   return session;
 }
 
-/** Dev/e2e helper — only when cookies already present. */
+/**
+ * Dev/e2e helper when cookies are missing.
+ * Never invents a lab/colleague client id — callers must set client via /api/session.
+ */
 export async function requireSessionOrDemo(): Promise<Session> {
   const session = await readSession();
   if (!session) {
-    return { userId: DEMO_USER_ID, clientId: DEMO_CLIENT_ID };
+    return { userId: DEMO_USER_ID, clientId: "" };
   }
   return session;
 }

@@ -64,12 +64,12 @@ export function trialBalanceFromLines(
   return { accounts, totalDebit, totalCredit, balanced: totalDebit === totalCredit };
 }
 
-function hashJournal(memo: string, entryDate: string, lines: JournalLineInput[]) {
+export function hashJournal(memo: string, entryDate: string, lines: JournalLineInput[]) {
   const payload = JSON.stringify({ memo, entryDate, lines });
   return createHash("sha256").update(payload).digest("hex");
 }
 
-async function requireOpenPeriod(db: PoolClient, clientId: string, periodId: string) {
+export async function requireOpenPeriod(db: PoolClient, clientId: string, periodId: string) {
   const period = await db.query(
     `SELECT id, status, period_start, period_end, label
      FROM accounting_periods
@@ -89,7 +89,7 @@ export async function listPeriods(userId: string, clientId: string) {
       `SELECT id, label, period_start AS "periodStart", period_end AS "periodEnd", status
        FROM accounting_periods
        WHERE client_id = $1
-       ORDER BY period_start DESC`,
+       ORDER BY period_start ASC`,
       [clientId],
     );
     return rows.rows;
@@ -132,16 +132,20 @@ export async function listJournals(userId: string, clientId: string, periodId?: 
     const rows = await db.query(
       `SELECT e.id, e.period_id AS "periodId", e.memo, e.entry_date AS "entryDate",
               e.status, e.source_document_id AS "sourceDocumentId",
+              e.entry_no AS "entryNo", e.voucher_type AS "voucherType",
               e.posted_at AS "postedAt",
               p.label AS "periodLabel",
+              d.original_name AS "sourceDocumentName",
+              d.doc_type AS "sourceDocType",
               COALESCE(SUM(l.debit_minor), 0)::bigint AS "debitMinor",
               COALESCE(SUM(l.credit_minor), 0)::bigint AS "creditMinor"
        FROM journal_entries e
        JOIN accounting_periods p ON p.id = e.period_id
+       LEFT JOIN documents d ON d.id = e.source_document_id
        LEFT JOIN journal_lines l ON l.entry_id = e.id
        WHERE e.client_id = $1
          AND ($2::uuid IS NULL OR e.period_id = $2)
-       GROUP BY e.id, p.label
+       GROUP BY e.id, p.label, d.original_name, d.doc_type
        ORDER BY e.entry_date DESC, e.created_at DESC`,
       [clientId, periodId || null],
     );
@@ -152,11 +156,16 @@ export async function listJournals(userId: string, clientId: string, periodId?: 
 export async function getJournal(userId: string, clientId: string, entryId: string) {
   return withUser(userId, async (db) => {
     const entry = await db.query(
-      `SELECT id, period_id AS "periodId", memo, entry_date AS "entryDate", status,
-              source_document_id AS "sourceDocumentId", source_extraction_id AS "sourceExtractionId",
-              content_hash AS "contentHash", posted_at AS "postedAt"
-       FROM journal_entries
-       WHERE id = $1 AND client_id = $2`,
+      `SELECT e.id, e.period_id AS "periodId", e.memo, e.entry_date AS "entryDate", e.status,
+              e.source_document_id AS "sourceDocumentId", e.source_extraction_id AS "sourceExtractionId",
+              e.entry_no AS "entryNo", e.voucher_type AS "voucherType",
+              e.content_hash AS "contentHash", e.posted_at AS "postedAt",
+              d.original_name AS "sourceDocumentName", d.doc_type AS "sourceDocType",
+              p.label AS "periodLabel"
+       FROM journal_entries e
+       JOIN accounting_periods p ON p.id = e.period_id
+       LEFT JOIN documents d ON d.id = e.source_document_id
+       WHERE e.id = $1 AND e.client_id = $2`,
       [entryId, clientId],
     );
     if (!entry.rowCount) return null;
@@ -170,8 +179,42 @@ export async function getJournal(userId: string, clientId: string, entryId: stri
        ORDER BY l.debit_minor DESC, a.code`,
       [entryId],
     );
-    return { ...entry.rows[0], lines: lines.rows };
+    return {
+      ...entry.rows[0],
+      lines: lines.rows.map((line) => ({
+        ...line,
+        debitMinor: Number(line.debitMinor),
+        creditMinor: Number(line.creditMinor),
+      })),
+    };
   });
+}
+
+async function assignLedgerVoucherNo(
+  db: PoolClient,
+  clientId: string,
+  entryId: string,
+  entryDate: string,
+  voucherType: string,
+) {
+  const year = Number(String(entryDate).slice(0, 4)) || new Date().getUTCFullYear();
+  const vt = ["Sales", "Purchase", "Receipt", "Payment", "Contra", "Journal", "Credit Note", "Debit Note", "Opening", "Closing"].includes(
+    voucherType,
+  )
+    ? voucherType
+    : "Journal";
+  const no = await db.query(`SELECT ledger_next_voucher_no($1::uuid, $2::text, $3::int) AS entry_no`, [
+    clientId,
+    vt,
+    year,
+  ]);
+  const entryNo = String(no.rows[0].entry_no);
+  await db.query(`UPDATE journal_entries SET entry_no = $2, voucher_type = $3 WHERE id = $1`, [
+    entryId,
+    entryNo,
+    vt,
+  ]);
+  return entryNo;
 }
 
 export async function createJournal(
@@ -198,8 +241,8 @@ export async function createJournal(
     await db.query(
       `INSERT INTO journal_entries (
          id, client_id, period_id, source_document_id, source_extraction_id, source_file_id,
-         memo, entry_date, status, content_hash, created_by, posted_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+         memo, entry_date, status, content_hash, created_by, posted_at, voucher_type
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
       [
         entryId,
         clientId,
@@ -213,8 +256,12 @@ export async function createJournal(
         contentHash,
         userId,
         body.post ? new Date().toISOString() : null,
+        "Journal",
       ],
     );
+    if (body.post) {
+      await assignLedgerVoucherNo(db, clientId, entryId, body.entryDate, "Journal");
+    }
     for (const line of body.lines) {
       await db.query(
         `INSERT INTO journal_lines (

@@ -108,7 +108,7 @@ def poll(settings, storage) -> None:
                 books_job = claim_books_job(conn)
                 conn.commit()
                 if books_job is not None and books_job.get("id"):
-                    run_books_job(conn, dict(books_job))
+                    run_books_job(conn, dict(books_job), storage)
                     continue
 
                 time.sleep(0.4)

@@ -8,9 +8,8 @@ export function middleware(request: NextRequest) {
   if (path.startsWith("/api") || path.startsWith("/_next") || path === "/favicon.ico" || path === "/icon.svg") {
     return NextResponse.next();
   }
-  const hasSession =
-    Boolean(request.cookies.get("daftar_user")?.value) &&
-    Boolean(request.cookies.get("daftar_client")?.value);
+  // User cookie is enough to stay in the app. client may be empty until a company is created.
+  const hasSession = Boolean(request.cookies.get("daftar_user")?.value);
 
   if (PUBLIC.has(path)) {
     if (hasSession && path === "/login") {

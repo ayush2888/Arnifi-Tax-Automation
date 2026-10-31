@@ -18,8 +18,10 @@ export function BooksSideDrawer({
   tabs,
   activeTab,
   onTabChange,
+  className,
   children,
 }: {
+  className?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
@@ -37,7 +39,7 @@ export function BooksSideDrawer({
       <SheetContent
         side="right"
         showCloseButton={false}
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-xl"
+        className={cn("flex w-full flex-col gap-0 p-0 data-[side=right]:sm:max-w-xl", className)}
         data-testid="books-side-drawer"
       >
         <div className="flex items-start justify-between border-b border-border px-5 py-4">

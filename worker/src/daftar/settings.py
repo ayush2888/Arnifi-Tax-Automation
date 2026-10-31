@@ -45,7 +45,7 @@ def load_settings() -> Settings:
         s3_bucket=os.environ.get("S3_BUCKET", "statements"),
         s3_region=os.environ.get("S3_REGION", "us-east-1"),
         iban_key=os.environ.get("IBAN_ENCRYPTION_KEY", "dev-only-iban-key-change-me"),
-        ocr_provider=os.environ.get("OCR_PROVIDER", "local"),
+        ocr_provider=(os.environ.get("OCR_PROVIDER", "textract") or "textract").strip().lower(),
         worker_token=os.environ.get("WORKER_TOKEN", "dev-worker-token"),
         pdf_probe_min_chars=int(os.environ.get("PDF_PROBE_MIN_CHARS", "30")),
     )

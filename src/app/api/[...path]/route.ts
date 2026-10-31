@@ -7,6 +7,7 @@ import {
   actor,
   approveStatement,
   bankAccounts,
+  createBankAccount,
   bulkCategorize,
   categories,
   createRule,
@@ -107,6 +108,15 @@ import {
   verifyMfaCode,
 } from "@/server/security-gate";
 import { allowRealClientData } from "@/config/security";
+import { archiveClient, createClient, ensureAccountingMonths } from "@/server/clients";
+import {
+  approveAndPostDocument,
+  getCompanyDocument,
+  listCompanyDocuments,
+  reextractDocument,
+  removeDocument,
+  updateDocumentFacts,
+} from "@/server/invoices";
 import {
   createPostingRule,
   getClientProfile,
@@ -144,7 +154,8 @@ type Ctx = { params: Promise<{ path: string[] }> };
 
 async function context() {
   const session = await requireSession();
-  const who = await actor(session.userId, session.clientId);
+  // Empty clientId = signed-in accountant with no company yet (create from Home).
+  const who = session.clientId ? await actor(session.userId, session.clientId) : null;
   if (who) {
     await assertSessionTenantAllowed(session.userId, session.clientId);
   }
@@ -175,8 +186,9 @@ function fail(error: unknown) {
     return NextResponse.json({ error: error.code, message: error.message }, { status });
   }
   const code = error instanceof Error ? error.name : "error";
-  console.error("api", code);
-  return NextResponse.json({ error: "request_failed" }, { status: 500 });
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error("api", code, detail);
+  return NextResponse.json({ error: "request_failed", message: detail }, { status: 500 });
 }
 
 function queryOf(url: URL): TxnQuery {
@@ -210,12 +222,21 @@ export async function GET(request: Request, contextParams: Ctx) {
     const { session, who } = await context();
     if (path[0] === "session") {
       const book = await directory(session.userId);
-      return NextResponse.json({
+      const activeIds = new Set(book.clients.map((c) => c.id));
+      // Drop sticky lab/seed cookies so the top bar never shows Alpha Ctrl etc.
+      let clientId = session.clientId && activeIds.has(session.clientId) ? session.clientId : book.clients[0]?.id || "";
+      const signedIn = clientId ? Boolean(await actor(session.userId, clientId)) : Boolean(book.me);
+      const response = NextResponse.json({
         ...book,
-        clientId: session.clientId,
-        signedIn: Boolean(who),
+        clientId,
+        signedIn,
         security: securityStatusPayload(),
       });
+      if (clientId !== session.clientId) {
+        response.cookies.set("daftar_user", session.userId, SESSION_COOKIE);
+        response.cookies.set("daftar_client", clientId, SESSION_COOKIE);
+      }
+      return response;
     }
     if (path[0] === "security-status") {
       return NextResponse.json(securityStatusPayload());
@@ -281,6 +302,12 @@ export async function GET(request: Request, contextParams: Ctx) {
       const periodId = url.searchParams.get("periodId");
       if (!periodId) return NextResponse.json({ error: "periodId_required" }, { status: 400 });
       return NextResponse.json(await trialBalance(session.userId, session.clientId, periodId));
+    }
+    if (path[0] === "documents" && path[1] === "all") {
+      return NextResponse.json(await listCompanyDocuments(session.userId, session.clientId));
+    }
+    if (path[0] === "documents" && path[1]) {
+      return NextResponse.json(await getCompanyDocument(session.userId, session.clientId, path[1]));
     }
     if (path[0] === "documents") {
       return NextResponse.json(await listDocuments(session.userId, session.clientId, url.searchParams.get("periodId") || undefined));
@@ -415,14 +442,18 @@ export async function POST(request: Request, contextParams: Ctx) {
       const body = await request.json();
       const userId = String(body.userId || "");
       let clientId = String(body.clientId || "");
-      let allowed = clientId ? await actor(userId, clientId) : null;
-      if (!allowed) {
-        const book = await directory(userId);
+      const book = await directory(userId);
+      if (!book.me) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      const activeIds = new Set(book.clients.map((c) => c.id));
+      // Prefer a switcher-visible company. Empty client is OK (create from Home).
+      if (!clientId || !activeIds.has(clientId)) {
         clientId = book.clients[0]?.id || "";
-        allowed = clientId ? await actor(userId, clientId) : null;
       }
-      if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-      await assertSessionTenantAllowed(userId, clientId);
+      if (clientId) {
+        const allowed = await actor(userId, clientId);
+        if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+        await assertSessionTenantAllowed(userId, clientId);
+      }
       const response = NextResponse.json({ ok: true, security: securityStatusPayload() });
       response.cookies.set("daftar_user", userId, SESSION_COOKIE);
       response.cookies.set("daftar_client", clientId, SESSION_COOKIE);
@@ -460,7 +491,56 @@ export async function POST(request: Request, contextParams: Ctx) {
       });
       return NextResponse.json({ id: path[1], isSynthetic: false });
     }
+    if (path[0] === "clients" && path[1] && path[2] === "archive") {
+      if (!who) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      const archived = await archiveClient(session.userId, path[1]);
+      const response = NextResponse.json(archived);
+      if (session.clientId === path[1]) {
+        const nextId = archived.nextClientId || "";
+        if (nextId) {
+          response.cookies.set("daftar_user", session.userId, SESSION_COOKIE);
+          response.cookies.set("daftar_client", nextId, SESSION_COOKIE);
+        }
+      }
+      return response;
+    }
+    if (path[0] === "clients" && !path[1]) {
+      // Allow create with no company selected yet (empty workspace after lab/seed hide).
+      const book = who ? null : await directory(session.userId);
+      const canCreate = who
+        ? ["admin", "accountant"].includes(who.role)
+        : book?.me && ["admin", "accountant"].includes(book.me.role);
+      if (!canCreate) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      const body = await request.json();
+      const created = await createClient(session.userId, {
+        name: String(body.name || ""),
+        trn: body.trn ? String(body.trn) : null,
+        defaultCurrency: body.defaultCurrency ? String(body.defaultCurrency) : "AED",
+        fiscalYearStartMonth: body.fiscalYearStartMonth ? Number(body.fiscalYearStartMonth) : 1,
+        fiscalYear: body.fiscalYear ? Number(body.fiscalYear) : undefined,
+      });
+      const response = NextResponse.json(created);
+      response.cookies.set("daftar_user", session.userId, SESSION_COOKIE);
+      response.cookies.set("daftar_client", created.id, SESSION_COOKIE);
+      return response;
+    }
     if (!who) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    if (path[0] === "bank-accounts" && !path[1]) {
+      const body = await request.json();
+      const created = await createBankAccount(session.userId, session.clientId, {
+        bankName: String(body.bankName || ""),
+        label: String(body.label || ""),
+        currency: body.currency ? String(body.currency) : "AED",
+        iban: body.iban ? String(body.iban) : null,
+      });
+      if ("error" in created) {
+        return NextResponse.json(
+          { error: created.error, message: "message" in created ? created.message : undefined },
+          { status: created.error === "forbidden" ? 403 : 400 },
+        );
+      }
+      return NextResponse.json(created);
+    }
     if (path[0] === "uploads") {
       const form = await request.formData();
       const file = form.get("file");
@@ -469,7 +549,12 @@ export async function POST(request: Request, contextParams: Ctx) {
       if (file.size > 25 * 1024 * 1024) return NextResponse.json({ error: "too_large" }, { status: 400 });
       const content = Buffer.from(await file.arrayBuffer());
       const result = await registerUpload(session.userId, session.clientId, bankAccountId, file.name, content, file.type);
-      if ("error" in result) return NextResponse.json(result, { status: result.error === "forbidden" ? 403 : 400 });
+      if ("error" in result) {
+        return NextResponse.json(
+          { error: result.error, message: "message" in result ? result.message : undefined },
+          { status: result.error === "forbidden" ? 403 : 400 },
+        );
+      }
       return NextResponse.json(result);
     }
     if (path[0] === "statements" && path[2] === "mapping") {
@@ -521,6 +606,17 @@ export async function POST(request: Request, contextParams: Ctx) {
       const body = await request.json();
       return NextResponse.json(await saveView(session.userId, session.clientId, String(body.name || "View"), body.config));
     }
+    if (path[0] === "periods" && path[1] === "ensure") {
+      const body = await request.json();
+      return NextResponse.json(
+        await ensureAccountingMonths(session.userId, session.clientId, {
+          fiscalYear: Number(body.fiscalYear || new Date().getUTCFullYear()),
+          fiscalYearStartMonth: body.fiscalYearStartMonth
+            ? Number(body.fiscalYearStartMonth)
+            : undefined,
+        }),
+      );
+    }
     if (path[0] === "periods" && !path[1]) {
       const body = await request.json();
       return NextResponse.json(
@@ -559,6 +655,18 @@ export async function POST(request: Request, contextParams: Ctx) {
           facts: body.facts && typeof body.facts === "object" ? body.facts : {},
         }),
       );
+    }
+    if (path[0] === "documents" && path[1] && path[2] === "extract") {
+      return NextResponse.json(await reextractDocument(session.userId, session.clientId, path[1]));
+    }
+    if (path[0] === "documents" && path[1] && path[2] === "remove") {
+      const body = await request.json().catch(() => ({}));
+      return NextResponse.json(
+        await removeDocument(session.userId, session.clientId, path[1], body?.reason ? String(body.reason) : undefined),
+      );
+    }
+    if (path[0] === "documents" && path[1] && path[2] === "approve-post") {
+      return NextResponse.json(await approveAndPostDocument(session.userId, session.clientId, path[1]));
     }
     if (path[0] === "extractions" && path[1] && path[2] === "approve-post") {
       return NextResponse.json(await approveExtractionAndPost(session.userId, session.clientId, path[1]));
@@ -913,6 +1021,16 @@ export async function PATCH(request: Request, contextParams: Ctx) {
       if ("error" in result) return NextResponse.json(result, { status: result.error === "forbidden" ? 403 : 404 });
       return NextResponse.json(result);
     }
+    if (path[0] === "documents" && path[1] && !path[2]) {
+      const body = await request.json();
+      return NextResponse.json(
+        await updateDocumentFacts(session.userId, session.clientId, path[1], {
+          facts: body.facts && typeof body.facts === "object" ? body.facts : undefined,
+          docType: body.docType ? String(body.docType) : undefined,
+          periodId: body.periodId ? String(body.periodId) : undefined,
+        }),
+      );
+    }
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   } catch (error) {
     return fail(error);
@@ -924,6 +1042,15 @@ export async function DELETE(_request: Request, contextParams: Ctx) {
     const path = (await contextParams.params).path;
     const { session, who } = await context();
     if (!who) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    if (path[0] === "clients" && path[1]) {
+      const archived = await archiveClient(session.userId, path[1]);
+      const response = NextResponse.json(archived);
+      if (session.clientId === path[1] && archived.nextClientId) {
+        response.cookies.set("daftar_user", session.userId, SESSION_COOKIE);
+        response.cookies.set("daftar_client", archived.nextClientId, SESSION_COOKIE);
+      }
+      return response;
+    }
     if (path[0] === "views" && path[1]) {
       return NextResponse.json(await deleteView(session.userId, session.clientId, path[1]));
     }

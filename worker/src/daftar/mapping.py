@@ -14,6 +14,7 @@ FIELDS = (
     "txn_date",
     "value_date",
     "description",
+    "amount",
     "debit",
     "credit",
     "balance",
@@ -46,6 +47,17 @@ SYNONYMS: dict[str, tuple[str, ...]] = {
         "التفاصيل",
         "شرح",
     ),
+    # Single signed column (Wio and many modern banks): negative = money out.
+    "amount": (
+        "amount",
+        "amt",
+        "transaction amount",
+        "txn amount",
+        "amount (incl. vat)",
+        "amount incl vat",
+        "amount (incl vat)",
+        "المبلغ",
+    ),
     "debit": (
         "debit",
         "withdrawal",
@@ -77,8 +89,12 @@ SYNONYMS: dict[str, tuple[str, ...]] = {
     "reference": (
         "reference",
         "ref",
+        "ref.",
         "refno",
         "ref no",
+        "ref. number",
+        "ref number",
+        "reference number",
         "cheque",
         "cheque no",
         "المرجع",
@@ -96,16 +112,26 @@ SYNONYMS: dict[str, tuple[str, ...]] = {
 
 
 def norm_header(value: str) -> str:
-    return re.sub(r"\s+", " ", value.strip().casefold())
+    text = value.strip().casefold()
+    text = text.replace("(incl. vat)", "").replace("(incl vat)", "")
+    text = re.sub(r"[^\w\s./-]+", " ", text, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", text).strip(" .-")
 
 
 def field_for_header(header: str) -> str | None:
     token = norm_header(header)
-    compact = token.replace(" ", "")
+    if not token:
+        return None
+    compact = re.sub(r"[\s./-]+", "", token)
     for field, words in SYNONYMS.items():
         for word in words:
-            if token == word or compact == word.replace(" ", ""):
+            if token == word or compact == re.sub(r"[\s./-]+", "", word):
                 return field
+    # PDF/OCR often emits only the first word of a multi-word header.
+    if token in {"amount", "amt", "المبلغ"} or compact in {"amount", "amt"}:
+        return "amount"
+    if token in {"ref", "ref.", "reference", "cheque", "المرجع"} or compact in {"ref", "reference", "cheque"}:
+        return "reference"
     return None
 
 
@@ -134,7 +160,7 @@ def profile_fits(column_map: dict, headers: list[str]) -> bool:
         source = column_map.get(field)
         if not source or source not in present:
             return False
-    if not any(column_map.get(field) in present for field in ("debit", "credit", "balance")):
+    if not any(column_map.get(field) in present for field in ("debit", "credit", "amount", "balance")):
         return False
     for source in column_map.values():
         if source and source not in present:
@@ -156,20 +182,16 @@ DATE_FORMATS = (
 def detect_date_format(samples: list[str]) -> str:
     usable = []
     for sample in samples:
-        text = (sample or "").strip()
-        if text and text not in {"-", "—", "–"}:
-            usable.append(text)
+        token = first_date_token(sample)
+        if not token:
+            continue
+        # Keep only tokens that parse under at least one known format.
+        if any(True for fmt in DATE_FORMATS if _parses_date(token, fmt)):
+            usable.append(token)
     if not usable:
         return "%Y-%m-%d"
 
-    def parses(value: str, fmt: str) -> bool:
-        try:
-            datetime.strptime(value, fmt)
-            return True
-        except ValueError:
-            return False
-
-    matching = [fmt for fmt in DATE_FORMATS if all(parses(value, fmt) for value in usable[:12])]
+    matching = [fmt for fmt in DATE_FORMATS if all(_parses_date(value, fmt) for value in usable[:12])]
     if "%Y-%m-%d" in matching:
         return "%Y-%m-%d"
     if "%d/%m/%Y" in matching and "%m/%d/%Y" in matching:
@@ -208,11 +230,38 @@ def detect_separators(samples: list[str]) -> tuple[str, str]:
     return ".", ","
 
 
-def parse_date(value: str | None, date_format: str):
+DATE_TOKEN_RE = re.compile(
+    r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\b"
+)
+
+
+def _parses_date(value: str, fmt: str) -> bool:
+    try:
+        datetime.strptime(value, fmt)
+        return True
+    except ValueError:
+        return False
+
+
+def first_date_token(value: str | None) -> str | None:
+    """Pull the first date-looking token out of a cell that may also hold a ref."""
     text = (value or "").strip()
     if not text or text in {"-", "—", "–"}:
         return None
+    match = DATE_TOKEN_RE.search(text)
+    return match.group(1) if match else None
+
+
+def parse_date(value: str | None, date_format: str):
+    token = first_date_token(value)
+    if not token:
+        return None
     try:
-        return datetime.strptime(text, date_format).date()
+        return datetime.strptime(token, date_format).date()
     except ValueError:
+        for fmt in DATE_FORMATS:
+            try:
+                return datetime.strptime(token, fmt).date()
+            except ValueError:
+                continue
         return None

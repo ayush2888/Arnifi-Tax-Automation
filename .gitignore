@@ -42,6 +42,9 @@ fixtures/generated
 fixtures/v1-goldens/filed/*
 !fixtures/v1-goldens/filed/.gitkeep
 lab-output/
+lab-input/**
+!lab-input/.gitkeep
+!lab-input/README.md
 __pycache__/
 .pytest_cache/
 *.pyc
@@ -52,3 +55,6 @@ __pycache__/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+*.egg-info/
+

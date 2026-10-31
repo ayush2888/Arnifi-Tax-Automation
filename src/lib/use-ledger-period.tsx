@@ -2,10 +2,14 @@
 
 import { useEffect, useState } from "react";
 
+import { pickDefaultPeriodId } from "@/lib/period-default";
+
 export type LedgerPeriod = {
   id: string;
   label: string;
   status: string;
+  periodStart?: string;
+  periodEnd?: string;
 };
 
 /** Open month for the company in the current session. Reads accounting_periods, not books_periods. */
@@ -21,8 +25,7 @@ export function useLedgerPeriod() {
         if (cancelled) return;
         const rows = Array.isArray(list) ? list : [];
         setPeriods(rows);
-        const open = rows.find((period) => period.status === "OPEN" || period.status === "REOPENED") || rows[0];
-        setPeriodId(open?.id || "");
+        setPeriodId(pickDefaultPeriodId(rows));
       })
       .catch(() => {
         if (!cancelled) setPeriodId("");

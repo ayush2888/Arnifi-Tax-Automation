@@ -48,18 +48,23 @@ export const VirtualGrid = forwardRef<
       onKeyDown={onKeyDown}
       data-testid="txn-scroll"
       data-total-size={virtualizer.getTotalSize()}
-      className="h-[calc(100vh-320px)] min-h-80 overflow-auto rounded-lg border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="h-[calc(100vh-280px)] min-h-80 overflow-auto bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring"
       aria-label="Transactions grid"
     >
       <div style={{ width: width ? Math.max(width, 0) : undefined, minWidth: "100%" }}>
-      {header}
-      <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
-        {items.map((item) => (
-          <div key={item.key} data-row={item.index} className="absolute top-0 left-0" style={{ transform: `translateY(${item.start}px)` }}>
-            {renderItem(item)}
-          </div>
-        ))}
-      </div>
+        {header}
+        <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
+          {items.map((item) => (
+            <div
+              key={item.key}
+              data-row={item.index}
+              className="absolute top-0 left-0"
+              style={{ transform: `translateY(${item.start}px)` }}
+            >
+              {renderItem(item)}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

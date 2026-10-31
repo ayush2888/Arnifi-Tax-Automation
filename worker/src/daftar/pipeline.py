@@ -147,7 +147,12 @@ def process_statement(conn, storage: ObjectStore, statement_id: str, password: s
     kind, _mime = sniff(content)
     _event(conn, row, "sniff", kind if kind != "xls" else "xlsx", 0, started)
     try:
-        extraction = extract_file(content, kind, password)
+        preferred = (row.get("account_currency") or row.get("currency") or "AED")
+        preferred = str(preferred).strip().upper() or "AED"
+        extraction = extract_file(content, kind, password, preferred_currency=preferred)
+        # Bank account currency wins over anything the PDF meta claims (multi-currency packs).
+        extraction.currency = preferred
+        _fill_period_gaps(extraction, row.get("original_name"))
     except CodedError as exc:
         if exc.code == "password_required":
             _event(conn, row, "probe", "password_required", 0, started)
@@ -199,7 +204,7 @@ def process_statement(conn, storage: ObjectStore, statement_id: str, password: s
             _as_date(extraction.period_end),
             extraction.opening_minor,
             extraction.closing_minor,
-            extraction.currency or row["currency"],
+            preferred,
             method,
             extraction.page_count,
             Json(proposal),
@@ -288,7 +293,7 @@ def _materialise(conn, row, extraction: Extraction, column_map, date_format, dec
         closing_minor=extraction.closing_minor if extraction.closing_minor is not None else row["closing_minor"],
         period_start=_as_date(extraction.period_start) or row["period_start"],
         period_end=_as_date(extraction.period_end) or row["period_end"],
-        extracted_count=len(extraction.rows),
+        extracted_count=len(txns),
     )
     with conn.transaction():
         conn.execute("DELETE FROM bank_transactions WHERE statement_id = %s", (row["statement_id"],))
@@ -337,10 +342,10 @@ def _materialise(conn, row, extraction: Extraction, column_map, date_format, dec
         conn.execute(
             """
             UPDATE statements
-            SET status = %s, error = NULL, validation_flags = %s
+            SET status = %s, error = NULL, validation_flags = %s, extracted_row_count = %s
             WHERE id = %s
             """,
-            (status, statement_flags, row["statement_id"]),
+            (status, statement_flags, len(txns), row["statement_id"]),
         )
     logger.info(
         "statement=%s status=%s method=%s rows=%s",
@@ -351,41 +356,95 @@ def _materialise(conn, row, extraction: Extraction, column_map, date_format, dec
     )
 
 
+_FOOTER_RE = re.compile(
+    r"please review this account|report any discrepanc|within 30 days|customer service|"
+    r"regulated by cbuae|page\s+\d+\s+of|account holder name|opening balance|closing balance|"
+    r"summary of accounts|account statement",
+    re.I,
+)
+
+
 def _normalize(extraction: Extraction, column_map: dict, date_format: str, decimal_sep: str, thousands_sep: str, currency: str) -> list[Txn]:
     def header(field_name: str) -> str | None:
         value = column_map.get(field_name)
         return value or None
 
+    def cell_amount(field_name: str, cells: dict) -> tuple[int | None, bool]:
+        name = header(field_name)
+        if not name:
+            return None, False
+        raw = cells.get(name, "")
+        if not str(raw).strip():
+            return None, False
+        try:
+            return parse_amount(raw, decimal_sep=decimal_sep, thousands_sep=thousands_sep), False
+        except (MoneyError, TypeError):
+            return None, True
+
     txns: list[Txn] = []
+    kept = 0
     for row in extraction.rows:
-        bad = False
-
-        def amount(field_name: str):
-            nonlocal bad
-            name = header(field_name)
-            if not name:
-                return None
-            raw = row.cells.get(name, "")
-            try:
-                return parse_amount(raw, decimal_sep=decimal_sep, thousands_sep=thousands_sep)
-            except (MoneyError, TypeError):
-                bad = True
-                return None
-
         description_raw = row.cells.get(header("description") or "", "") if header("description") else ""
         description_clean = re.sub(r"\s+", " ", description_raw).strip()
+        if not any(str(v).strip() for v in row.cells.values()):
+            continue
+
+        debit_minor, bad_debit = cell_amount("debit", row.cells)
+        credit_minor, bad_credit = cell_amount("credit", row.cells)
+        balance_minor, bad_balance = cell_amount("balance", row.cells)
+        signed, bad_signed = cell_amount("amount", row.cells)
+        bad = bad_debit or bad_credit or bad_balance or bad_signed
+        if signed is not None and debit_minor is None and credit_minor is None:
+            if signed < 0:
+                debit_minor = abs(signed)
+            elif signed > 0:
+                credit_minor = signed
+            else:
+                # Zero-amount line is still a real line (fees sometimes).
+                debit_minor = 0
+
+        date_raw = row.cells.get(header("txn_date") or "", "") if header("txn_date") else ""
+        txn_date = parse_date(date_raw, date_format) if header("txn_date") else None
+        # Drop header leftovers / empty OCR noise that has neither a date nor an amount.
+        if txn_date is None and debit_minor is None and credit_minor is None:
+            continue
+        # Footer / disclaimer lines: only drop when there is no usable money amount.
+        blob = " ".join(str(v) for v in row.cells.values() if v)
+        if (debit_minor is None and credit_minor is None) and (
+            _FOOTER_RE.search(blob) or _FOOTER_RE.search(description_clean)
+        ):
+            continue
+        # Trim disclaimer text that PDF layout glued onto a real description.
+        if _FOOTER_RE.search(description_clean):
+            description_clean = re.split(
+                r"(?i)please review|and report any|within 30 days|statement and report",
+                description_clean,
+                maxsplit=1,
+            )[0].strip(" -")
+            description_raw = description_clean
+
+        reference = None
+        if header("reference"):
+            reference = (row.cells.get(header("reference") or "") or "").strip() or None
+        elif date_raw and txn_date is not None:
+            # Wio often puts "13/06/2026 P977961723" in the date column when Ref wasn't mapped.
+            leftover = re.sub(r"^\s*\d{1,4}[/.-]\d{1,2}[/.-]\d{2,4}\s*", "", date_raw).strip()
+            if leftover and re.search(r"[A-Za-z0-9]", leftover):
+                reference = leftover
+
+        kept += 1
         txns.append(
             Txn(
-                row_no=row.row_no,
-                txn_date=parse_date(row.cells.get(header("txn_date") or "", ""), date_format) if header("txn_date") else None,
+                row_no=kept,
+                txn_date=txn_date,
                 value_date=parse_date(row.cells.get(header("value_date") or "", ""), date_format) if header("value_date") else None,
                 description_raw=description_raw,
                 description_clean=description_clean,
                 counterparty=(row.cells.get(header("counterparty") or "") or None) if header("counterparty") else None,
-                reference=(row.cells.get(header("reference") or "") or None) if header("reference") else None,
-                debit_minor=amount("debit"),
-                credit_minor=amount("credit"),
-                balance_minor=amount("balance"),
+                reference=reference,
+                debit_minor=debit_minor,
+                credit_minor=credit_minor,
+                balance_minor=balance_minor,
                 confidence=row.confidence,
                 source_page=row.source_page,
                 source_bbox=row.source_bbox,
@@ -562,7 +621,7 @@ def _load(conn, statement_id: str) -> dict:
         """
         SELECT s.id AS statement_id, s.client_id, s.file_id, s.currency, s.opening_minor, s.closing_minor,
                s.period_start, s.period_end, s.proposed_mapping, s.extraction_method,
-               f.storage_key, c.firm_id, b.bank_name
+               f.storage_key, f.original_name, c.firm_id, b.bank_name, b.currency AS account_currency
         FROM statements s
         JOIN files f ON f.id = s.file_id
         JOIN clients c ON c.id = s.client_id
@@ -577,7 +636,8 @@ def _load(conn, statement_id: str) -> dict:
 
 
 def _confirmed_profile(conn, firm_id: str, bank_name: str, file_type: str, fingerprint: str):
-    return conn.execute(
+    # Prefer exact bank_name match; fall back to same firm+fingerprint (account label renames).
+    row = conn.execute(
         """
         SELECT column_map, date_format, decimal_separator, thousands_separator, encoding, version
         FROM parser_profiles
@@ -587,6 +647,19 @@ def _confirmed_profile(conn, firm_id: str, bank_name: str, file_type: str, finge
         LIMIT 1
         """,
         (firm_id, bank_name, file_type, fingerprint),
+    ).fetchone()
+    if row:
+        return row
+    return conn.execute(
+        """
+        SELECT column_map, date_format, decimal_separator, thousands_separator, encoding, version
+        FROM parser_profiles
+        WHERE firm_id = %s AND file_type = %s AND header_fingerprint = %s
+          AND confirmed_by IS NOT NULL
+        ORDER BY version DESC
+        LIMIT 1
+        """,
+        (firm_id, file_type, fingerprint),
     ).fetchone()
 
 
@@ -652,10 +725,35 @@ def _dedupe_hash(txn: Txn, currency: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _fill_period_gaps(extraction, filename: str | None) -> None:
+    """If the PDF body omitted the statement window, recover it from the file name."""
+    from daftar.extract import period_range_from_filename
+
+    if extraction.period_start and extraction.period_end:
+        return
+    start, end = period_range_from_filename(filename)
+    if start and not extraction.period_start:
+        extraction.period_start = start
+    if end and not extraction.period_end:
+        extraction.period_end = end
+
+
 def _as_date(value):
     if value is None or isinstance(value, date):
         return value
-    return date.fromisoformat(str(value)[:10])
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        from daftar.extract import _normalise_period_token
+
+        normalised = _normalise_period_token(text)
+        try:
+            return date.fromisoformat(normalised[:10])
+        except ValueError:
+            return None
 
 
 def run_queued_job(conn, storage: ObjectStore, job: dict) -> None:

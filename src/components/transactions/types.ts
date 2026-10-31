@@ -11,6 +11,7 @@ export type Txn = {
   creditMinor: number | null;
   balanceMinor: number | null;
   currency: string;
+  accountLabel?: string | null;
   categoryId: string | null;
   categoryName: string | null;
   classStatus: string;
@@ -25,8 +26,11 @@ export type Txn = {
 export type Category = { id: string; name: string };
 
 export type ColumnId =
+  | "select"
   | "reference"
   | "date"
+  | "account"
+  | "currency"
   | "description"
   | "counterparty"
   | "debit"
@@ -42,21 +46,25 @@ export type ColumnId =
 
 export type Column = { id: ColumnId; label: string; width: number; visible: boolean; align: "left" | "right" };
 
+/** Lean defaults — Account already implies currency; extras live under Columns. */
 export const DEFAULT_COLUMNS: Column[] = [
-  { id: "reference", label: "Reference", width: 148, visible: true, align: "left" },
-  { id: "date", label: "Date", width: 112, visible: true, align: "left" },
-  { id: "description", label: "Description", width: 240, visible: true, align: "left" },
-  { id: "counterparty", label: "Counterparty", width: 160, visible: true, align: "left" },
-  { id: "debit", label: "Debit", width: 110, visible: true, align: "right" },
-  { id: "credit", label: "Credit", width: 110, visible: true, align: "right" },
+  { id: "select", label: "", width: 40, visible: true, align: "left" },
+  { id: "date", label: "Date", width: 108, visible: true, align: "left" },
+  { id: "reference", label: "Reference", width: 132, visible: true, align: "left" },
+  { id: "account", label: "Account", width: 128, visible: true, align: "left" },
+  { id: "description", label: "Description", width: 280, visible: true, align: "left" },
+  { id: "debit", label: "Debit", width: 112, visible: true, align: "right" },
+  { id: "credit", label: "Credit", width: 112, visible: true, align: "right" },
   { id: "balance", label: "Balance", width: 120, visible: true, align: "right" },
-  { id: "category", label: "Category", width: 160, visible: true, align: "left" },
-  { id: "classification", label: "Classification", width: 130, visible: true, align: "left" },
-  { id: "review", label: "Review", width: 120, visible: true, align: "left" },
-  { id: "match", label: "Match", width: 110, visible: true, align: "left" },
-  { id: "flags", label: "Flags", width: 160, visible: true, align: "left" },
-  { id: "confidence", label: "Confidence", width: 110, visible: true, align: "right" },
-  { id: "statement", label: "Statement", width: 180, visible: true, align: "left" },
+  { id: "category", label: "Category", width: 148, visible: true, align: "left" },
+  { id: "currency", label: "Currency", width: 72, visible: false, align: "left" },
+  { id: "counterparty", label: "Counterparty", width: 160, visible: false, align: "left" },
+  { id: "classification", label: "Classification", width: 130, visible: false, align: "left" },
+  { id: "review", label: "Review", width: 120, visible: false, align: "left" },
+  { id: "match", label: "Match", width: 110, visible: false, align: "left" },
+  { id: "flags", label: "Flags", width: 160, visible: false, align: "left" },
+  { id: "confidence", label: "Confidence", width: 110, visible: false, align: "right" },
+  { id: "statement", label: "From statement", width: 220, visible: false, align: "left" },
 ];
 
 export type Filters = {
