@@ -68,6 +68,14 @@ import {
   subsidiaryLedgerSummary,
   updateBooksParty,
 } from "@/server/books/subsidiary-ledgers";
+import {
+  budgetVsActual,
+  createFixedAsset,
+  disposeFixedAsset,
+  fixedAssetSchedule,
+  listFixedAssets,
+  setBudgetLines,
+} from "@/server/books/budgets-assets";
 import { agingCsv, statementCsv, summaryCsv } from "@/server/books/subsidiary-ledger-core";
 import { booksAccountLedger, booksTrialBalance } from "@/server/books/trial-balance";
 import { booksVatSettlementPreview } from "@/server/books/vat-settlement";
@@ -222,6 +230,19 @@ export async function GET(request: Request, ctx: Ctx) {
       }
       return NextResponse.json(summary);
     }
+    if (path[0] === "budgets" && path.length === 1) {
+      const periodId = url.searchParams.get("periodId");
+      if (!periodId) return NextResponse.json({ error: "periodId_required" }, { status: 400 });
+      return NextResponse.json(await budgetVsActual(session.userId, session.clientId, periodId));
+    }
+    if (path[0] === "fixed-assets" && path.length === 1) {
+      const periodId = url.searchParams.get("periodId");
+      if (!periodId) return NextResponse.json({ error: "periodId_required" }, { status: 400 });
+      return NextResponse.json(await listFixedAssets(session.userId, session.clientId, periodId));
+    }
+    if (path[0] === "fixed-assets" && path.length === 3 && path[2] === "schedule") {
+      return NextResponse.json(await fixedAssetSchedule(session.userId, session.clientId, path[1]));
+    }
     if (path[0] === "group-ledgers" && path.length === 1) {
       const asOf = url.searchParams.get("asOf") || new Date().toISOString().slice(0, 10);
       return NextResponse.json(await groupLedgerOverview(session.userId, asOf));
@@ -370,6 +391,14 @@ export async function POST(request: Request, ctx: Ctx) {
           email: body.email,
         }),
       );
+    }
+    if (path[0] === "budgets" && path.length === 1) {
+      return NextResponse.json(
+        await setBudgetLines(session.userId, session.clientId, String(body.periodId || ""), body.lines),
+      );
+    }
+    if (path[0] === "fixed-assets" && path.length === 1) {
+      return NextResponse.json(await createFixedAsset(session.userId, session.clientId, body));
     }
     if (path[0] === "accounts" && path.length === 1) {
       return NextResponse.json(
@@ -587,6 +616,11 @@ export async function PATCH(request: Request, ctx: Ctx) {
                 : String(body.defaultVatCode),
           normalBalance: body.normalBalance != null ? String(body.normalBalance) : undefined,
         }),
+      );
+    }
+    if (path[0] === "fixed-assets" && path.length === 2) {
+      return NextResponse.json(
+        await disposeFixedAsset(session.userId, session.clientId, path[1], body.disposalDate),
       );
     }
     if (path[0] === "parties" && path.length === 2) {

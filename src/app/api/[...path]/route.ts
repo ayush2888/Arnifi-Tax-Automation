@@ -224,7 +224,7 @@ export async function GET(request: Request, contextParams: Ctx) {
       const book = await directory(session.userId);
       const activeIds = new Set(book.clients.map((c) => c.id));
       // Drop sticky lab/seed cookies so the top bar never shows Alpha Ctrl etc.
-      let clientId = session.clientId && activeIds.has(session.clientId) ? session.clientId : book.clients[0]?.id || "";
+      const clientId = session.clientId && activeIds.has(session.clientId) ? session.clientId : book.clients[0]?.id || "";
       const signedIn = clientId ? Boolean(await actor(session.userId, clientId)) : Boolean(book.me);
       const response = NextResponse.json({
         ...book,

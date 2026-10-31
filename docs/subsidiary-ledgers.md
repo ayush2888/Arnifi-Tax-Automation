@@ -30,7 +30,18 @@ set of journal lines on certain accounts, grouped by `books_journal_lines.party_
 - Aging clears the oldest charges first; leftover receipts show as "Unapplied".
 - The group overview sums amounts as stored, so it is only meaningful for companies reporting in the same currency.
 
+## Budgets and fixed assets (`db/31-budgets-and-assets.sql`)
+
+- Budget vs actual (Books > Budget vs actual): a budget per income or expense account and period, compared
+  with posted journals. Variance is positive when favourable. API: `GET/POST /api/books/budgets`.
+- Fixed assets (Books > Fixed assets): register with straight-line depreciation (full-month convention from the
+  acquisition month, exact at end of life, residual never depreciated), schedule per asset and disposal.
+  API: `GET/POST /api/books/fixed-assets`, `PATCH fixed-assets/:id`, `GET fixed-assets/:id/schedule`.
+  Depreciation is computed on read; it does not post journals.
+- Parties screen (Books > Parties): add, edit, deactivate and reactivate.
+
 ## Not built yet
 
-Multi-currency group consolidation, fixed-asset register, budgets, approval workflows beyond the existing
-preparer/approver rule, and a party management screen (edit and deactivate work through the API).
+- Multi-currency group consolidation (needs an FX rate table and a reporting-currency rule).
+- Threshold-based approval workflows. Only the existing rule applies: the preparer cannot post their own entry.
+- Posting the depreciation charge to the ledger automatically.

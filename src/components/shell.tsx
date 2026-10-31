@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "re
 import {
   ArrowLeftRight,
   BookOpen,
+  Building2,
   FileSpreadsheet,
   Home,
   Inbox,
@@ -15,7 +16,9 @@ import {
   PanelLeft,
   Receipt,
   Scale,
+  Target,
   Upload,
+  Users,
 } from "lucide-react";
 
 import { BooksShellProvider, useBooksShell } from "@/components/books/books-shell-context";
@@ -64,6 +67,9 @@ const NAV_GROUPS: { title: string; items: { href: string; label: string; icon: t
       { href: "/reports", label: "Reports", icon: FileSpreadsheet },
       { href: "/books/reports/subsidiary-ledgers", label: "Subsidiary ledgers", icon: BookOpen },
       { href: "/books/reports/group-ledgers", label: "Group overview", icon: Layers },
+      { href: "/books/parties", label: "Parties", icon: Users },
+      { href: "/books/reports/budgets", label: "Budget vs actual", icon: Target },
+      { href: "/books/reports/fixed-assets", label: "Fixed assets", icon: Building2 },
       { href: "/close", label: "Close period", icon: Lock },
     ],
   },
