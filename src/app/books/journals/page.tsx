@@ -85,6 +85,8 @@ type JournalDetail = {
     vatCode?: string | null;
     vatAmountMinor?: number;
     tags?: string[];
+    partyId?: string | null;
+    partyName?: string | null;
   }>;
 };
 
@@ -268,6 +270,7 @@ export default function BooksJournalsPage() {
         vatCode: l.vatCode,
         vatAmountMinor: l.vatAmountMinor,
         tags: l.tags || [],
+        partyId: l.partyId || null,
       })),
     });
     setEditEntryId(detail.id);
@@ -585,6 +588,11 @@ export default function BooksJournalsPage() {
                   <div key={line.id} className="rounded-md border border-border px-3 py-2 text-sm">
                     <div className="font-medium">
                       {line.accountCode} · {line.accountName}
+                      {line.partyName ? (
+                        <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal">
+                          {line.partyName}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="flex justify-between tabular-nums text-muted-foreground">
                       <span>{line.lineMemo || "—"}</span>

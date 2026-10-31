@@ -37,10 +37,12 @@ type LineDraft = {
   vatAmountMinor: number;
   lineMemo: string;
   lineTags: string[];
+  partyId: string;
   isAutoVatCompanion?: boolean;
 };
 
 type BooksTag = { id: string; name: string; colour: string };
+type BooksParty = { id: string; name: string; partyType: string };
 
 type TemplateKey =
   | "blank"
@@ -65,6 +67,7 @@ export type CreateEntryPrefill = {
     vatCode?: string | null;
     vatAmountMinor?: number;
     tags?: string[];
+    partyId?: string | null;
   }>;
 };
 
@@ -92,6 +95,7 @@ function emptyLine(): LineDraft {
     vatAmountMinor: 0,
     lineMemo: "",
     lineTags: [],
+    partyId: "",
   };
 }
 
@@ -134,6 +138,7 @@ function withAutoVatCompanions(lines: LineDraft[], accounts: Account[]): LineDra
         vatAmountMinor: 0,
         lineMemo: `VAT on ${acct.code}`,
         lineTags: line.lineTags,
+        partyId: "",
         isAutoVatCompanion: true,
       });
     }
@@ -147,6 +152,7 @@ function withAutoVatCompanions(lines: LineDraft[], accounts: Account[]): LineDra
         vatAmountMinor: 0,
         lineMemo: `VAT on ${acct.code}`,
         lineTags: line.lineTags,
+        partyId: "",
         isAutoVatCompanion: true,
       });
     }
@@ -279,6 +285,7 @@ export function CreateEntrySheet({
   const [entryTags, setEntryTags] = useState<string[]>([]);
   const [tagQuery, setTagQuery] = useState("");
   const [tagCatalog, setTagCatalog] = useState<BooksTag[]>([]);
+  const [parties, setParties] = useState<BooksParty[]>([]);
   const [lines, setLines] = useState<LineDraft[]>(() => [emptyLine(), emptyLine()]);
   const [template, setTemplate] = useState<TemplateKey>("blank");
   const [schedule, setSchedule] = useState(false);
@@ -303,6 +310,12 @@ export function CreateEntrySheet({
         if (Array.isArray(data)) setTagCatalog(data);
       })
       .catch(() => undefined);
+    fetch("/api/books/parties")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setParties(data);
+      })
+      .catch(() => undefined);
   }, [open]);
 
   useEffect(() => {
@@ -324,6 +337,7 @@ export function CreateEntrySheet({
           vatCode: l.vatCode || "",
           vatAmountMinor: l.vatAmountMinor || 0,
           lineTags: l.tags || [],
+          partyId: l.partyId || "",
         })),
       );
     }
@@ -541,6 +555,7 @@ export function CreateEntrySheet({
         vatAmountMinor: l.isAutoVatCompanion ? undefined : l.vatAmountMinor || undefined,
         isVatCompanion: Boolean(l.isAutoVatCompanion),
         tags: [...new Set([...entryTags, ...l.lineTags])],
+        partyId: l.isAutoVatCompanion ? null : l.partyId || null,
       }));
     if (payloadLines.length < 2) {
       setError("Add at least two lines with accounts and amounts.");
@@ -795,11 +810,12 @@ export function CreateEntrySheet({
               </Button>
             </div>
             <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full min-w-[1100px] text-sm">
+              <table className="w-full min-w-[1300px] text-sm">
                 <thead className="bg-muted/50 text-xs text-muted-foreground">
                   <tr>
                     <th className="w-8 px-2 py-2 text-left">#</th>
                     <th className="min-w-[180px] px-2 py-2 text-left">Account</th>
+                    <th className="min-w-[170px] px-2 py-2 text-left">Party</th>
                     <th className="min-w-[220px] px-2 py-2 text-left">Line description</th>
                     <th className="min-w-[110px] px-2 py-2 text-right">Debit</th>
                     <th className="min-w-[110px] px-2 py-2 text-right">Credit</th>
@@ -826,6 +842,23 @@ export function CreateEntrySheet({
                             onChange={(id) => updateLineByKey(line.key, { accountId: id })}
                             testId="create-entry-account"
                           />
+                        </td>
+                        <td className="px-2 py-1">
+                          <select
+                            className="h-8 w-full min-w-[150px] rounded-md border border-border bg-background px-1 text-xs"
+                            data-testid="create-entry-party"
+                            aria-label="Party"
+                            disabled={line.isAutoVatCompanion}
+                            value={line.partyId}
+                            onChange={(e) => updateLineByKey(line.key, { partyId: e.target.value })}
+                          >
+                            <option value="">—</option>
+                            {parties.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} ({p.partyType})
+                              </option>
+                            ))}
+                          </select>
                         </td>
                         <td className="px-2 py-1 min-w-[220px]">
                           <Input

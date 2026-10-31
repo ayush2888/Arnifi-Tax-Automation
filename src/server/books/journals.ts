@@ -9,6 +9,7 @@ import { writeBooksAudit } from "@/server/books/audit";
 import { requireDualControlActor } from "@/server/books/dual-control";
 import { BooksError } from "@/server/books/errors";
 import { enqueueBooksJob } from "@/server/books/jobs";
+import { assertPartiesBelongToClient } from "@/server/books/subsidiary-ledgers";
 import { expandVatCompanionLines, type BooksLineDraft } from "@/server/books/vat-lines";
 import { isVoucherType, type VoucherType } from "@/server/books/vouchers";
 import { assertSyntheticTenant } from "@/server/security-gate";
@@ -135,6 +136,11 @@ async function assignEntryNo(
 }
 
 async function insertLines(db: PoolClient, clientId: string, entryId: string, lines: BooksLineInput[]) {
+  await assertPartiesBelongToClient(
+    db,
+    clientId,
+    lines.map((line) => line.partyId),
+  );
   let lastPrimaryLineId: string | null = null;
   for (const line of lines) {
     const debit = line.debitMinor ?? 0;
@@ -145,8 +151,8 @@ async function insertLines(db: PoolClient, clientId: string, entryId: string, li
       `INSERT INTO books_journal_lines (
          entry_id, client_id, account_id, debit_minor, credit_minor, currency,
          original_minor, fx_rate_scaled, aed_minor, line_memo, vat_treatment, tags,
-         vat_code, vat_amount_minor, linked_vat_line_id
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         vat_code, vat_amount_minor, linked_vat_line_id, party_id
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING id`,
       [
         entryId,
@@ -164,6 +170,7 @@ async function insertLines(db: PoolClient, clientId: string, entryId: string, li
         line.vatCode ?? null,
         vatAmt,
         null,
+        line.partyId || null,
       ],
     );
     const lineId = String(inserted.rows[0].id);
@@ -450,10 +457,11 @@ export async function getBooksJournal(userId: string, clientId: string, entryId:
               l.aed_minor AS "aedMinor", l.line_memo AS "lineMemo",
               l.vat_treatment AS "vatTreatment", l.vat_code AS "vatCode",
               l.vat_amount_minor AS "vatAmountMinor", l.linked_vat_line_id AS "linkedVatLineId",
-              l.tags
+              l.tags, l.party_id AS "partyId", bp.name AS "partyName"
        FROM books_journal_lines l
        JOIN books_accounts a ON a.id = l.account_id
        LEFT JOIN books_accounts p ON p.id = a.parent_id
+       LEFT JOIN books_parties bp ON bp.id = l.party_id
        WHERE l.entry_id = $1
        ORDER BY l.debit_minor DESC, a.code`,
       [entryId],
@@ -993,7 +1001,7 @@ export async function reverseBooksJournal(
     await requireWritablePeriod(db, clientId, String(original.rows[0].period_id));
 
     const lines = await db.query(
-      `SELECT account_id, debit_minor, credit_minor, currency, line_memo, vat_treatment, vat_code, tags
+      `SELECT account_id, debit_minor, credit_minor, currency, line_memo, vat_treatment, vat_code, tags, party_id
        FROM books_journal_lines WHERE entry_id = $1 ORDER BY id`,
       [entryId],
     );
@@ -1006,6 +1014,7 @@ export async function reverseBooksJournal(
       vatTreatment: line.vat_treatment,
       vatCode: line.vat_code,
       tags: line.tags || [],
+      partyId: line.party_id ? String(line.party_id) : null,
     }));
     assertBooksBalanced(opposite);
 
@@ -1216,6 +1225,7 @@ export async function beginBooksJournalCorrection(
     vatCode: line.vatCode == null ? null : String(line.vatCode),
     vatAmountMinor: Number(line.vatAmountMinor ?? 0),
     tags: Array.isArray(line.tags) ? line.tags.map(String) : [],
+    partyId: line.partyId ? String(line.partyId) : null,
   }));
   return {
     ...rev,

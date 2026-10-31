@@ -16,6 +16,7 @@ export type BooksLineDraft = {
   vatAmountMinor?: number;
   isVatCompanion?: boolean;
   tags?: string[];
+  partyId?: string | null;
 };
 
 export const VAT_INPUT_CODE = "1430";

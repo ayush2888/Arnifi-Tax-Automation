@@ -5,9 +5,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import {
   ArrowLeftRight,
+  BookOpen,
   FileSpreadsheet,
   Home,
   Inbox,
+  Layers,
   Landmark,
   Lock,
   PanelLeft,
@@ -60,6 +62,8 @@ const NAV_GROUPS: { title: string; items: { href: string; label: string; icon: t
     items: [
       { href: "/journals", label: "Journals", icon: Landmark },
       { href: "/reports", label: "Reports", icon: FileSpreadsheet },
+      { href: "/books/reports/subsidiary-ledgers", label: "Subsidiary ledgers", icon: BookOpen },
+      { href: "/books/reports/group-ledgers", label: "Group overview", icon: Layers },
       { href: "/close", label: "Close period", icon: Lock },
     ],
   },

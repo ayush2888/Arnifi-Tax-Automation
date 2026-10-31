@@ -59,6 +59,16 @@ import {
   lockBooksPeriod,
   reopenBooksPeriod,
 } from "@/server/books/periods";
+import {
+  createBooksParty,
+  listBooksParties,
+  groupLedgerOverview,
+  subsidiaryLedgerAging,
+  subsidiaryLedgerStatement,
+  subsidiaryLedgerSummary,
+  updateBooksParty,
+} from "@/server/books/subsidiary-ledgers";
+import { agingCsv, statementCsv, summaryCsv } from "@/server/books/subsidiary-ledger-core";
 import { booksAccountLedger, booksTrialBalance } from "@/server/books/trial-balance";
 import { booksVatSettlementPreview } from "@/server/books/vat-settlement";
 import { listBooksVoucherSequences, updateBooksVoucherSequence } from "@/server/books/vouchers";
@@ -150,6 +160,71 @@ export async function GET(request: Request, ctx: Ctx) {
       return NextResponse.json(
         await booksAccountLedger(session.userId, session.clientId, periodId, accountId),
       );
+    }
+    if (path[0] === "parties" && path.length === 1) {
+      return NextResponse.json(
+        await listBooksParties(session.userId, session.clientId, {
+          partyType: url.searchParams.get("type") || undefined,
+          includeInactive: url.searchParams.get("includeInactive") === "1",
+        }),
+      );
+    }
+    if (path[0] === "subsidiary-ledger" && path.length === 1) {
+      const kind = url.searchParams.get("kind") || "";
+      const periodId = url.searchParams.get("periodId");
+      if (!periodId) return NextResponse.json({ error: "periodId_required" }, { status: 400 });
+      const partyId = url.searchParams.get("partyId");
+      const wantsCsv = url.searchParams.get("format") === "csv";
+      const fileSlug = (label: string) => label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const csvResponse = (body: string, name: string) =>
+        new Response(body, {
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="${name}.csv"`,
+          },
+        });
+
+      if (url.searchParams.get("view") === "aging") {
+        const aging = await subsidiaryLedgerAging(session.userId, session.clientId, kind, periodId);
+        if (wantsCsv) {
+          return csvResponse(
+            agingCsv(aging, aging.partyLabel),
+            fileSlug(`${aging.kind}-aging-${aging.periodLabel}`),
+          );
+        }
+        return NextResponse.json(aging);
+      }
+
+      if (partyId) {
+        const statement = await subsidiaryLedgerStatement(
+          session.userId,
+          session.clientId,
+          kind,
+          periodId,
+          partyId,
+        );
+        if (wantsCsv) {
+          return csvResponse(
+            statementCsv(statement),
+            fileSlug(`${statement.kind}-${statement.party.name}-${statement.periodLabel}`),
+          );
+        }
+        return NextResponse.json(statement);
+      }
+      const summary = await subsidiaryLedgerSummary(session.userId, session.clientId, kind, periodId, {
+        includeZero: url.searchParams.get("includeZero") === "1",
+      });
+      if (wantsCsv) {
+        return csvResponse(
+          summaryCsv(summary.kind, summary),
+          fileSlug(`${summary.kind}-ledger-${summary.periodLabel}`),
+        );
+      }
+      return NextResponse.json(summary);
+    }
+    if (path[0] === "group-ledgers" && path.length === 1) {
+      const asOf = url.searchParams.get("asOf") || new Date().toISOString().slice(0, 10);
+      return NextResponse.json(await groupLedgerOverview(session.userId, asOf));
     }
     if (path[0] === "company" && path.length === 1) {
       return NextResponse.json(await getBooksCompanyProfile(session.userId, session.clientId));
@@ -283,6 +358,16 @@ export async function POST(request: Request, ctx: Ctx) {
           name: body.name != null ? String(body.name) : undefined,
           trn: body.trn === undefined ? undefined : body.trn == null ? null : String(body.trn),
           defaultCurrency: body.defaultCurrency != null ? String(body.defaultCurrency) : undefined,
+        }),
+      );
+    }
+    if (path[0] === "parties" && path.length === 1) {
+      return NextResponse.json(
+        await createBooksParty(session.userId, session.clientId, {
+          name: body.name,
+          partyType: body.partyType,
+          trn: body.trn,
+          email: body.email,
         }),
       );
     }
@@ -501,6 +586,17 @@ export async function PATCH(request: Request, ctx: Ctx) {
                 ? null
                 : String(body.defaultVatCode),
           normalBalance: body.normalBalance != null ? String(body.normalBalance) : undefined,
+        }),
+      );
+    }
+    if (path[0] === "parties" && path.length === 2) {
+      return NextResponse.json(
+        await updateBooksParty(session.userId, session.clientId, path[1], {
+          name: body.name,
+          partyType: body.partyType,
+          trn: body.trn,
+          email: body.email,
+          active: body.active,
         }),
       );
     }
